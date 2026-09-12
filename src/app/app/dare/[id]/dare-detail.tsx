@@ -14,7 +14,7 @@ import {
   Swords,
   Hourglass,
 } from "lucide-react";
-import { useNimiqWallet } from "@/components/nimiq-provider";
+import { useNimiqWallet, isErrorResponse } from "@/components/nimiq-provider";
 import { HudPanel } from "@/components/ui/hud-panel";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Button } from "@/components/ui/button";
@@ -55,6 +55,9 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
   const [proofLink, setProofLink] = useState("");
   const [submit, setSubmit] = useState<SubmitState>({ phase: "idle", error: null });
   const [copied, setCopied] = useState(false);
+  const [funding, setFunding] = useState<{ phase: "idle" } | { phase: "sending"; serialized: string | null }>(
+    { phase: "idle" }
+  );
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -140,6 +143,39 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
           : "neutral";
 
   const VerifierIcon = cur.verifierKind === "STRAVA" ? Bike : cur.verifierKind === "GITHUB" ? GitBranch : ImageIcon;
+
+  async function fundFromWallet() {
+    const recip = cur.escrow?.address;
+    if (!recip) {
+      setFunding({ phase: "idle" });
+      return;
+    }
+    if (!wallet.provider || wallet.status !== "ready") {
+      setFunding({ phase: "idle" });
+      return;
+    }
+    setFunding({ phase: "sending", serialized: null });
+    try {
+      const valueLuna = Math.round(cur.amount * 100_000);
+      const feeLuna = Math.round(valueLuna / 1000) + 100;
+      const height = await wallet.provider.getBlockNumber();
+      const result = await wallet.provider.sendBasicTransaction({
+        recipient: recip,
+        value: valueLuna,
+        fee: feeLuna,
+        validityStartHeight: height,
+      });
+      if (isErrorResponse(result)) {
+        setFunding({ phase: "idle" });
+        setSubmit({ phase: "idle", error: `funding rejected: ${result.error.message}` });
+        return;
+      }
+      setFunding({ phase: "sending", serialized: typeof result === "string" ? result : null });
+    } catch (e) {
+      setFunding({ phase: "idle" });
+      setSubmit({ phase: "idle", error: e instanceof Error ? e.message : String(e) });
+    }
+  }
 
   async function submitProof(image?: string) {
     if (!wallet.address || wallet.status !== "ready") {
@@ -278,6 +314,21 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
                 )}
               </div>
               {copied && <StatusPill label="COPIED" tone="live" live />}
+              {cur.asset === "NIM" && wallet.provider && wallet.status === "ready" && (
+                <div className="flex flex-wrap items-center gap-4 border-t border-border pt-4">
+                  <Button onClick={() => void fundFromWallet()} disabled={funding.phase === "sending"}>
+                    {funding.phase === "sending" ? "Sending…" : `Fund ${formatAmount(cur.amount)} NIM from wallet`}
+                  </Button>
+                  <p className="font-mono text-[11px] text-muted-foreground">
+                    &gt; signed by the Pay host; the sweep auto-activates once the deposit lands
+                  </p>
+                </div>
+              )}
+              {funding.phase === "sending" && funding.serialized && (
+                <p className="font-mono text-[11px] text-primary">
+                  TX SENT TO PAY HOST - {funding.serialized.slice(0, 40)}…
+                </p>
+              )}
             </div>
           </HudPanel>
         </motion.div>
