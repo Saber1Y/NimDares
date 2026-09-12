@@ -24,7 +24,7 @@ export default function Landing() {
         <PillNav />
 
         {/* HERO */}
-        <section className="mx-auto w-full max-w-[1400px] px-5 pb-24 pt-36 md:px-10 md:pb-32 md:pt-44">
+        <section className="mx-auto w-full max-w-[1400px] px-5 pb-24 pt-28 md:px-10 md:pb-32 md:pt-44">
           <div className="mx-auto grid max-w-[1160px] gap-16 md:grid-cols-[1.15fr_0.85fr] md:items-center">
             <div>
               <motion.p
@@ -89,11 +89,22 @@ export default function Landing() {
                 <StatusPill label="REAL / LIVE" tone="live" live />
               </div>
               <TerminalBlock title="escrow_engine.log">
-                <TerminalRow kind="SYS">ESCROW_OPEN 10 NIM staked on &ldquo;Ship v0 by Friday&rdquo;.</TerminalRow>
-                <TerminalRow kind="EVENT">PROOF_INTAKE screenshot 2026-09-12_14:02 → gemini-2.5-flash</TerminalRow>
-                <TerminalRow kind="AGENT">ADJUDICATE matches criteria: streak counter, build output, date.</TerminalRow>
-                <TerminalRow kind="OK">VALID → payout scheduled. 10.00 NIM → user wallet.</TerminalRow>
-                <TerminalRow kind="EVENT">SETTLE escrow signed &amp; broadcast. Hash 0x9f3a…e21</TerminalRow>
+                {[
+                  { kind: "SYS" as const, text: "ESCROW_OPEN 10 NIM staked on \u201cShip v0 by Friday\u201d." },
+                  { kind: "EVENT" as const, text: "PROOF_INTAKE screenshot 2026-09-12_14:02 \u2192 gemini-2.5-flash" },
+                  { kind: "AGENT" as const, text: "ADJUDICATE matches criteria: streak counter, build output, date." },
+                  { kind: "OK" as const, text: "VALID \u2192 payout scheduled. 10.00 NIM \u2192 user wallet." },
+                  { kind: "EVENT" as const, text: "SETTLE escrow signed & broadcast. Hash 0x9f3a\u2026e21" },
+                ].map((row, i) => (
+                  <motion.div
+                    key={row.text}
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.7 + i * 0.45, duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+                  >
+                    <TerminalRow kind={row.kind}>{row.text}</TerminalRow>
+                  </motion.div>
+                ))}
               </TerminalBlock>
             </motion.div>
           </div>

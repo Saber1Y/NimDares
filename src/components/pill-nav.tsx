@@ -37,7 +37,7 @@ export function PillNav() {
         ))}
       </nav>
       <Button href="/app" variant="secondary">
-        Launch App
+        Launch app
       </Button>
     </motion.header>
   );

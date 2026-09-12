@@ -1,13 +1,21 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { CircleDot } from "lucide-react";
 import { motion } from "motion/react";
 import { useNimiqWallet } from "@/components/nimiq-provider";
 import { StatusPill } from "@/components/ui/status-pill";
+import { cn } from "@/lib/cn";
 
 export function AppNav() {
   const { address, status, network } = useNimiqWallet();
+  const pathname = usePathname();
+
+  const navLinks = [
+    { href: "/app", label: "Dares", active: pathname === "/app" || pathname === "/app/" },
+    { href: "/app/create", label: "Create", active: pathname.startsWith("/app/create") },
+  ];
 
   return (
     <motion.header
@@ -24,8 +32,19 @@ export function AppNav() {
       </Link>
 
       <nav className="hidden items-center gap-1 font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground lg:flex">
-        <Link href="/app" className="px-4 py-2 text-foreground">Dares</Link>
-        <Link href="/app/create" className="px-4 py-2 transition-colors hover:text-foreground">Create</Link>
+        {navLinks.map((l) => (
+          <Link
+            key={l.href}
+            href={l.href}
+            aria-current={l.active ? "page" : undefined}
+            className={cn(
+              "px-4 py-2 transition-colors hover:text-foreground",
+              l.active ? "text-foreground" : "text-muted-foreground"
+            )}
+          >
+            {l.label}
+          </Link>
+        ))}
       </nav>
 
       <div className="flex items-center gap-3">

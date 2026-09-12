@@ -1,6 +1,7 @@
 @import "tailwindcss";
 
 :root {
+  color-scheme: dark;
   --background: #09090b;
   --foreground: oklch(0.94 0.018 165);
   --card: oklch(0.17 0.022 180);
@@ -36,6 +37,15 @@ body {
 
 ::selection {
   background: color-mix(in oklab, var(--primary) 35%, transparent);
+}
+
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.hud-input:focus-visible {
+  outline: none;
 }
 
 @keyframes nd-pulse {

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { motion } from "motion/react";
-import { ArrowRight, GitBranch, Bike, Plus, Wallet, CircleAlert, Check, ImageIcon } from "lucide-react";
+import { ArrowLeft, ArrowRight, GitBranch, Bike, Plus, Wallet, CircleAlert, Check, ImageIcon } from "lucide-react";
 import { useNimiqWallet } from "@/components/nimiq-provider";
 import { HudPanel } from "@/components/ui/hud-panel";
 import { StatusPill } from "@/components/ui/status-pill";
@@ -132,7 +132,7 @@ export default function CreateDare() {
                 )}
               </div>
               <Button href="/app">
-                Back to console <ArrowRight className="size-4" />
+                <ArrowLeft className="size-4" /> Back to console
               </Button>
             </div>
           </HudPanel>

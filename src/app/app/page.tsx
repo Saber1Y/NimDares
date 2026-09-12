@@ -8,6 +8,7 @@ import { useNimiqWallet } from "@/components/nimiq-provider";
 import { HudPanel } from "@/components/ui/hud-panel";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Button } from "@/components/ui/button";
+import { timeLeft } from "@/lib/format";
 import type { Dare, LedgerSummary } from "@/lib/types";
 
 type ApiState = {
@@ -137,12 +138,12 @@ export default function Dashboard() {
           { label: "Escrowed NIM", value: api.summary ? api.summary.escrowedNim.toFixed(2) : null },
           { label: "Escrowed USDT", value: api.summary ? api.summary.escrowedUsdt.toFixed(2) : null },
           { label: "Resolved", value: api.summary ? String(api.summary.won + api.summary.lost) : null },
-        ].map((m) => (
+        ].map((m, i) => (
           <motion.div
             key={m.label}
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.3, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+            transition={{ delay: 0.3 + i * 0.05, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
             className="border-t border-border pt-3"
           >
             <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">{m.label}</p>
@@ -236,7 +237,7 @@ function DareRow({ dare }: { dare: Dare }) {
           <StatusPill label={dare.status} tone={tone} live={tone === "live"} />
         </div>
         <p className="mt-1 line-clamp-1 font-mono text-[11px] text-muted-foreground">
-          {dare.asset} · {dare.amount} · verifier {dare.verifierKind} · {dare.deadline}
+          {dare.asset} · {dare.amount.toLocaleString("en-US", { maximumFractionDigits: 2 })} · verifier {dare.verifierKind} · {timeLeft(dare.deadline)}
         </p>
       </div>
       <div className="flex items-center gap-3 md:shrink-0">
