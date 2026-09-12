@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "test:e2e": "node scripts/e2e-api.mjs",
+    "test:adjudicate": "node scripts/e2e-adjudicate.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.22.0",

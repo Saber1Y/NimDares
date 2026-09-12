@@ -76,6 +76,20 @@ export interface LedgerSummary {
   lost: number;
 }
 
+export interface TxRecordRow {
+  id: string;
+  dareId: string | null;
+  kind: string;
+  chain: string;
+  asset: Asset;
+  amountRaw: bigint;
+  fromAddress: string | null;
+  toAddress: string | null;
+  txHash: string | null;
+  status: string;
+  createdAt: Date;
+}
+
 export interface LedgerStore {
   label: string;
   getOrCreateUser(address: string): Promise<{ id: string; address: string }>;
@@ -100,6 +114,8 @@ export interface LedgerStore {
     deltaRaw: bigint
   ): Promise<EscrowBalanceRecord>;
   summary(): Promise<LedgerSummary>;
+  listTransactions(limit?: number): Promise<TxRecordRow[]>;
+  listEscrowBalances(): Promise<EscrowBalanceRecord[]>;
 }
 
 const prismaState = (() => {
@@ -305,6 +321,38 @@ class PrismaLedgerStore implements LedgerStore {
       lost: lostAgg,
     };
   }
+
+  async listTransactions(limit = 50): Promise<TxRecordRow[]> {
+    const rows = await this.db().txRecord.findMany({
+      orderBy: { createdAt: "desc" },
+      take: limit,
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      dareId: r.dareId,
+      kind: r.kind,
+      chain: r.chain,
+      asset: r.asset as Asset,
+      amountRaw: r.amountRaw,
+      fromAddress: r.fromAddress,
+      toAddress: r.toAddress,
+      txHash: r.txHash,
+      status: r.status,
+      createdAt: r.createdAt,
+    }));
+  }
+
+  async listEscrowBalances(): Promise<EscrowBalanceRecord[]> {
+    const rows = await this.db().escrowBalance.findMany();
+    return rows.map((r) => ({
+      asset: r.asset as Asset,
+      chain: r.chain as "NIM" | "EVM",
+      address: r.address,
+      balanceRaw: r.balanceRaw,
+      reservedRaw: r.reservedRaw,
+      updatedAt: r.updatedAt,
+    }));
+  }
 }
 
 class MemoryLedgerStore implements LedgerStore {
@@ -423,6 +471,26 @@ class MemoryLedgerStore implements LedgerStore {
       won: statuses.filter((s) => s === "WON").length,
       lost: statuses.filter((s) => s === "LOST").length,
     };
+  }
+
+  async listTransactions(limit = 50): Promise<TxRecordRow[]> {
+    return this.txs.slice(-limit).reverse().map((t) => ({
+      id: t.id,
+      dareId: null,
+      kind: t.kind,
+      chain: t.asset === "NIM" ? "NIM" : "EVM",
+      asset: t.asset,
+      amountRaw: 0n,
+      fromAddress: null,
+      toAddress: null,
+      txHash: null,
+      status: "UNKNOWN",
+      createdAt: new Date(),
+    }));
+  }
+
+  async listEscrowBalances(): Promise<EscrowBalanceRecord[]> {
+    return [...this.escrow.values()];
   }
 }
 

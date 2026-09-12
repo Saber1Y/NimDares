@@ -1,9 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { motion } from "motion/react";
-import { ArrowRight, Plus, Wallet, CircleAlert, Swords, Hourglass } from "lucide-react";
+import {
+  ArrowRight,
+  Plus,
+  Wallet,
+  CircleAlert,
+  Swords,
+  Hourglass,
+  RefreshCw,
+  Shield,
+} from "lucide-react";
 import { useNimiqWallet } from "@/components/nimiq-provider";
 import { HudPanel } from "@/components/ui/hud-panel";
 import { StatusPill } from "@/components/ui/status-pill";
@@ -17,6 +26,8 @@ type ApiState = {
   summary: LedgerSummary | null;
 };
 
+type ReconcileState = { phase: "idle" } | { phase: "reconciling" } | { phase: "done"; message: string };
+
 export default function Dashboard() {
   const { status: walletStatus, address, network, error } = useNimiqWallet();
   const [api, setApi] = useState<ApiState>({
@@ -24,6 +35,7 @@ export default function Dashboard() {
     dares: [],
     summary: null,
   });
+  const [reconcile, setReconcile] = useState<ReconcileState>({ phase: "idle" });
 
   useEffect(() => {
     let cancelled = false;
@@ -44,6 +56,32 @@ export default function Dashboard() {
       cancelled = true;
     };
   }, [address]);
+
+  const runReconcile = useCallback(async () => {
+    if (!address || walletStatus !== "ready") return;
+    setReconcile({ phase: "reconciling" });
+    try {
+      const res = await fetch("/api/wallet/reconcile", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ asset: "NIM", address }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        setReconcile({ phase: "done", message: data?.error ?? `HTTP ${res.status}` });
+        return;
+      }
+      const ledgerBal = data.reconciled
+        ? `${(Number(data.ledger) / 100_000).toFixed(2)} NIM`
+        : "N/A";
+      setReconcile({
+        phase: "done",
+        message: `on-chain: ${data.reconciled ? ledgerBal : "unreachable"} · store: ${data.store}`,
+      });
+    } catch (e) {
+      setReconcile({ phase: "done", message: e instanceof Error ? e.message : String(e) });
+    }
+  }, [address, walletStatus]);
 
   return (
     <div className="flex flex-col gap-8">
@@ -66,9 +104,14 @@ export default function Dashboard() {
             never a handshake.
           </p>
         </div>
-        <Button href="/app/create">
-          New dare <Plus className="size-4" />
-        </Button>
+        <div className="flex flex-wrap items-center gap-3">
+          <Button href="/app/create">
+            New dare <Plus className="size-4" />
+          </Button>
+          <Button href="/app/admin" variant="ghost">
+            <Shield className="size-4" /> Admin
+          </Button>
+        </div>
       </motion.div>
 
       {/* wallet HUD */}
@@ -101,6 +144,26 @@ export default function Dashboard() {
                 <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Account</p>
                 <p className="mt-3 font-mono text-sm text-foreground">linked &amp; signing</p>
               </div>
+            </div>
+          )}
+          {walletStatus === "ready" && (
+            <div className="mt-5 border-t border-border pt-4">
+              <div className="flex flex-wrap items-center gap-3">
+                <Button
+                  variant="secondary"
+                  onClick={() => void runReconcile()}
+                  disabled={reconcile.phase === "reconciling"}
+                >
+                  <RefreshCw className={`size-4 ${reconcile.phase === "reconciling" ? "animate-spin" : ""}`} />
+                  {reconcile.phase === "reconciling" ? "Reconciling…" : "Reconcile on-chain balance"}
+                </Button>
+                {reconcile.phase === "done" && (
+                  <StatusPill label={reconcile.message} tone="neutral" />
+                )}
+              </div>
+              <p className="mt-3 font-mono text-[11px] text-muted-foreground">
+                &gt; refreshes the escrow ledger from the live Nimiq/Polygon chain
+              </p>
             </div>
           )}
           {walletStatus === "no-host" && (
