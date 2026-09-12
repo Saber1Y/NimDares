@@ -1,0 +1,133 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Asset {
+  NIM
+  USDT
+}
+
+enum DareStatus {
+  PENDING_FUNDING
+  ACTIVE
+  SUBMITTED
+  ADJUDICATED
+  WON
+  LOST
+  SWEEPING
+}
+
+enum VerifierKind {
+  VISION
+  GITHUB
+  STRAVA
+}
+
+enum VerifierState {
+  VALID
+  INVALID
+  UNAVAILABLE
+  WAITING
+}
+
+enum PayoutStatus {
+  PENDING
+  SETTLED
+  FAILED
+}
+
+enum TxKind {
+  ESCROW_DEPOSIT
+  SWEEP
+  SLASH_POOL
+  PAYOUT
+}
+
+enum TxChain {
+  NIM
+  EVM
+}
+
+enum TxStatus {
+  PENDING
+  CONFIRMED
+  FAILED
+  UNKNOWN
+}
+
+model User {
+  id           String   @id @default(cuid())
+  address      String   @unique
+  createdAt    DateTime @default(now())
+  latestLoginAt DateTime @default(now())
+
+  dares       Dare[]
+  transactions TxRecord[]
+}
+
+model Dare {
+  id             String        @id @default(cuid())
+  ownerId        String
+  owner          User          @relation(fields: [ownerId], references: [id])
+  title          String
+  description    String
+  criteria       String
+  asset          Asset
+  amountRaw      BigInt
+  deadline       DateTime
+  status         DareStatus    @default(PENDING_FUNDING)
+  verifierKind   VerifierKind
+  verifierLink   String?
+  verifierResult Json?
+  proofImageUrl  String?
+  escrowTxHash   String?
+  payoutTxHash   String?
+  payoutStatus   PayoutStatus?
+  fundedAt       DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  transactions TxRecord[]
+
+  @@index([ownerId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model TxRecord {
+  id         String   @id @default(cuid())
+  dareId     String?
+  dare       Dare?    @relation(fields: [dareId], references: [id])
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id])
+  kind       TxKind
+  chain      TxChain
+  asset      Asset
+  amountRaw  BigInt
+  fromAddress String?
+  toAddress  String?
+  txHash     String?
+  status     TxStatus @default(PENDING)
+  createdAt  DateTime @default(now())
+
+  @@index([dareId])
+  @@index([userId])
+  @@index([status])
+}
+
+model EscrowBalance {
+  id             String   @id @default(cuid())
+  asset          Asset
+  chain          TxChain
+  address        String
+  balanceRaw     BigInt   @default(0)
+  reservedRaw    BigInt   @default(0)
+  updatedAt      DateTime @updatedAt
+
+  @@unique([asset, chain, address])
+}
