@@ -2,6 +2,46 @@ import { NextRequest, NextResponse } from "next/server";
 import { getStore } from "@/lib/db";
 import { adjudicateDare } from "@/lib/adjudicate";
 import { payoutDare } from "@/lib/payout";
+import { getNimEscrowInfo, fetchNimBalance } from "@/lib/escrow/nim";
+import { getEvmEscrowInfo, fetchUsdtBalance } from "@/lib/escrow/evm";
+
+async function fundPendingDares() {
+  const store = getStore();
+  const nimEscrow = getNimEscrowInfo();
+  const evmEscrow = getEvmEscrowInfo();
+  if (!nimEscrow.configured && !evmEscrow.configured) return { funded: 0, skipped: 1 };
+
+  const pending = (await store.listDares()).filter((d) => d.status === "PENDING_FUNDING");
+  if (pending.length === 0) return { funded: 0, skipped: 0 };
+
+  const nimPending = pending.filter((d) => d.asset === "NIM");
+  const usdtPending = pending.filter((d) => d.asset === "USDT");
+  let nimAvailable = 0n;
+  let usdtAvailable = 0n;
+  if (nimPending.length && nimEscrow.configured) {
+    nimAvailable = await fetchNimBalance(nimEscrow.address);
+  }
+  if (usdtPending.length && evmEscrow.configured) {
+    usdtAvailable = await fetchUsdtBalance(evmEscrow.address);
+  }
+
+  let funded = 0;
+  for (const d of nimPending) {
+    if (nimAvailable >= d.amountRaw) {
+      nimAvailable -= d.amountRaw;
+      await store.updateDare(d.id, { status: "ACTIVE", fundedAt: new Date() });
+      funded += 1;
+    }
+  }
+  for (const d of usdtPending) {
+    if (usdtAvailable >= d.amountRaw) {
+      usdtAvailable -= d.amountRaw;
+      await store.updateDare(d.id, { status: "ACTIVE", fundedAt: new Date() });
+      funded += 1;
+    }
+  }
+  return { funded, skipped: 0 };
+}
 
 export async function POST(req: NextRequest) {
   const secret = process.env.CRON_SECRET;
@@ -10,12 +50,12 @@ export async function POST(req: NextRequest) {
   }
 
   const store = getStore();
-  const dares = await store.listDares();
-  const now = Date.now();
 
   const stats = {
-    scanned: dares.length,
+    scanned: 0,
     expired: 0,
+    funded: 0,
+    funding_skipped: 0,
     lost_no_proof: 0,
     adjudicated_valid: 0,
     adjudicated_invalid: 0,
@@ -24,6 +64,14 @@ export async function POST(req: NextRequest) {
     payouts_pending: 0,
     payouts_failed: 0,
   };
+
+  const funding = await fundPendingDares();
+  stats.funded = funding.funded;
+  stats.funding_skipped = funding.skipped;
+
+  const dares = await store.listDares();
+  const now = Date.now();
+  stats.scanned = dares.length;
 
   for (const dare of dares) {
     if (dare.status !== "ACTIVE" && dare.status !== "SUBMITTED") continue;

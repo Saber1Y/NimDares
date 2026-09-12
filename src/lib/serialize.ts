@@ -1,6 +1,13 @@
 import type { DareRecord, EscrowBalanceRecord, LedgerSummary } from "@/lib/db";
 import { NIM_DECIMALS } from "@/lib/config";
-import type { Dare } from "@/lib/types";
+import { getNimEscrowInfo } from "@/lib/escrow/nim";
+import { getEvmEscrowInfo } from "@/lib/escrow/evm";
+import type { Asset, Dare } from "@/lib/types";
+
+function escrowFor(asset: Asset) {
+  const info = asset === "NIM" ? getNimEscrowInfo() : getEvmEscrowInfo();
+  return { address: info.configured ? info.address : null, configured: info.configured };
+}
 
 export function dareToClient(d: DareRecord): Dare {
   return {
@@ -25,6 +32,7 @@ export function dareToClient(d: DareRecord): Dare {
     payoutTxHash: d.payoutTxHash ?? null,
     payoutStatus: d.payoutStatus ?? null,
     funded: d.fundedAt !== null,
+    escrow: escrowFor(d.asset),
   };
 }
 

@@ -39,6 +39,7 @@ export interface Dare {
   payoutTxHash?: string | null;
   payoutStatus: PayoutStatus;
   funded: boolean;
+  escrow: { address: string | null; configured: boolean } | null;
 }
 
 export interface LedgerSummary {
