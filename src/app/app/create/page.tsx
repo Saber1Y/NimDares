@@ -2,24 +2,40 @@
 
 import { useState } from "react";
 import { motion } from "motion/react";
-import { ArrowLeft, ArrowRight, GitBranch, Bike, Plus, Wallet, CircleAlert, Check, ImageIcon } from "lucide-react";
+import { ArrowLeft, ArrowRight, GitBranch, Bike, Plus, Wallet, CircleAlert, Check, ImageIcon, Users, Globe, Hash } from "lucide-react";
 import { useNimiqWallet } from "@/components/nimiq-provider";
 import { HudPanel } from "@/components/ui/hud-panel";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Button } from "@/components/ui/button";
-import type { Asset, VerifierKind } from "@/lib/types";
+import type { Asset, RoomMode, VerifierKind } from "@/lib/types";
 
 type CreateState =
   | { phase: "idle" }
   | { phase: "signing" }
   | { phase: "submitting" }
-  | { phase: "created"; escrowAddress: string | null; escrowConfigured: boolean; asset: Asset; amount: number }
+  | {
+      phase: "created";
+      escrowAddress: string | null;
+      escrowConfigured: boolean;
+      asset: Asset;
+      amount: number;
+      mode: RoomMode;
+      maxCapacity: number;
+      roomCode: string | null;
+      dareId: string;
+    }
   | { phase: "error"; message: string };
 
 const VERIFIERS: { kind: VerifierKind; label: string; icon: typeof ImageIcon; hint: string }[] = [
   { kind: "VISION", label: "Screenshot proof", icon: ImageIcon, hint: "AI judge verifies an image proof" },
   { kind: "GITHUB", label: "GitHub activity", icon: GitBranch, hint: "Proof is your public commit history" },
   { kind: "STRAVA", label: "Strava activity", icon: Bike, hint: "Proof is a public activity link" },
+];
+
+const MODES: { mode: RoomMode; label: string; icon: typeof Users; hint: string }[] = [
+  { mode: "solo", label: "Solo", icon: Hash, hint: "One commitment, one stake, one verdict" },
+  { mode: "team", label: "Team", icon: Users, hint: "A private room your circle joins by invite code" },
+  { mode: "arena", label: "Arena", icon: Globe, hint: "A public table anyone can join from the arena feed" },
 ];
 
 function base64UrlEncode(s: string): string {
@@ -38,6 +54,8 @@ export default function CreateDare() {
   const [deadline, setDeadline] = useState("");
   const [verifier, setVerifier] = useState<VerifierKind>("VISION");
   const [verifierLink, setVerifierLink] = useState("");
+  const [mode, setMode] = useState<RoomMode>("solo");
+  const [capacity, setCapacity] = useState("5");
   const [state, setState] = useState<CreateState>({ phase: "idle" });
 
   const needsLink = verifier === "GITHUB" || verifier === "STRAVA";
@@ -79,6 +97,8 @@ export default function CreateDare() {
           deadline: new Date(deadline).toISOString(),
           verifierKind: verifier,
           verifierLink: needsLink ? verifierLink.trim() : undefined,
+          mode,
+          maxCapacity: mode === "solo" ? undefined : Number(capacity),
         }),
       });
       const data = await res.json();
@@ -92,6 +112,10 @@ export default function CreateDare() {
         escrowConfigured: data.escrow?.configured ?? false,
         asset,
         amount: Number(amount),
+        mode,
+        maxCapacity: data.dare?.maxCapacity ?? 1,
+        roomCode: data.dare?.roomCode ?? null,
+        dareId: data.dare?.id ?? "",
       });
     } catch (e) {
       setState({ phase: "error", message: e instanceof Error ? e.message : String(e) });
@@ -99,6 +123,7 @@ export default function CreateDare() {
   }
 
   if (state.phase === "created") {
+    const isRoom = state.mode !== "solo";
     return (
       <div className="mx-auto max-w-2xl">
         <motion.div
@@ -106,34 +131,73 @@ export default function CreateDare() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
         >
-          <HudPanel label="Dare staged" icon={<Check className="size-3.5" />} badge="PENDING / FUNDING">
+          <HudPanel label={isRoom ? "Room opened" : "Dare staged"} icon={<Check className="size-3.5" />} badge={isRoom ? "LOBBY" : "PENDING / FUNDING"}>
             <div className="flex flex-col gap-6">
-              <div className="flex items-center gap-3 rounded-2xl border border-primary/30 bg-primary/5 px-5 py-4">
-                <CircleAlert className="size-5 text-primary" />
-                <p className="text-sm leading-relaxed text-foreground">
-                  Stake is not yet on-chain. Send{" "}
-                  <span className="font-mono text-primary">{amount} {asset}</span> to the escrow
-                  address below. The dare is placed on the ledger the instant the sweep sees the
-                  deposit.
-                </p>
-              </div>
-              <div className="border-t border-border pt-4">
-                <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-                  Escrow address ({asset === "NIM" ? "Nimiq network" : "Polygon network"})
-                </p>
-                {state.escrowConfigured ? (
-                  <p className="mt-3 break-all font-mono text-sm text-foreground">
-                    {state.escrowAddress}
+              {isRoom ? (
+                <div className="flex flex-col gap-4">
+                  <div className="flex items-start gap-3 rounded-2xl border border-primary/30 bg-primary/5 px-5 py-4">
+                    <CircleAlert className="mt-0.5 size-5 shrink-0 text-primary" />
+                    <p className="text-sm leading-relaxed text-foreground">
+                      Your {state.mode} room is open in the lobby. Every participant funds{" "}
+                      <span className="font-mono text-primary">
+                        {state.amount} {state.asset}
+                      </span>{" "}
+                      into escrow as they join, tagged by a per-seat memo so the ledger credits
+                      the right chair. The room plays once every seat is funded or the deadline
+                      passes.
+                    </p>
+                  </div>
+                  {state.mode === "team" && state.roomCode && (
+                    <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-muted/20 px-4 py-3">
+                      <p className="flex-1 font-mono text-3xl font-semibold tracking-[0.3em] text-primary">
+                        {state.roomCode}
+                      </p>
+                      <Button href={`/app/dare/${state.dareId}`}>
+                        Enter lobby <ArrowRight className="size-4" />
+                      </Button>
+                    </div>
+                  )}
+                  <p className="font-mono text-[11px] text-muted-foreground">
+                    &gt; {state.mode === "team" ? `share the room code or the dashboard link with up to ${state.maxCapacity - 1} more people` : `public table · up to ${state.maxCapacity} players`}
                   </p>
-                ) : (
-                  <p className="mt-3 font-mono text-sm text-red-400">
-                    UNAVAILABLE - escrow key not configured on this deployment
-                  </p>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-4">
+                  <div className="flex items-center gap-3 rounded-2xl border border-primary/30 bg-primary/5 px-5 py-4">
+                    <CircleAlert className="size-5 text-primary" />
+                    <p className="text-sm leading-relaxed text-foreground">
+                      Stake is not yet on-chain. Send{" "}
+                      <span className="font-mono text-primary">{state.amount} {state.asset}</span> to the escrow
+                      address below. The dare is placed on the ledger the instant the sweep sees the
+                      deposit.
+                    </p>
+                  </div>
+                  <div className="border-t border-border pt-4">
+                    <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                      Escrow address ({state.asset === "NIM" ? "Nimiq network" : "Polygon network"})
+                    </p>
+                    {state.escrowConfigured ? (
+                      <p className="mt-3 break-all font-mono text-sm text-foreground">
+                        {state.escrowAddress}
+                      </p>
+                    ) : (
+                      <p className="mt-3 font-mono text-sm text-red-400">
+                        UNAVAILABLE - escrow key not configured on this deployment
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+              <div className="flex flex-wrap gap-3">
+                {state.mode === "team" && (
+                  <Button href={`/app/dare/${state.dareId}`}>
+                    Open lobby <ArrowRight className="size-4" />
+                  </Button>
                 )}
+                <Button href="/app">
+                  <ArrowLeft className="size-4" /> Back to console
+                </Button>
               </div>
-              <Button href="/app">
-                <ArrowLeft className="size-4" /> Back to console
-              </Button>
             </div>
           </HudPanel>
         </motion.div>
@@ -202,9 +266,57 @@ export default function CreateDare() {
         </HudPanel>
       </motion.div>
 
+      {/* mode */}
+      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}>
+        <HudPanel label="02 · Mode" icon={<Users className="size-3.5" />}>
+          <div className="flex flex-col gap-5">
+            <div className="flex flex-col gap-2 md:flex-row">
+              {MODES.map((m) => {
+                const Icon = m.icon;
+                const active = mode === m.mode;
+                return (
+                  <button
+                    key={m.mode}
+                    onClick={() => setMode(m.mode)}
+                    className={`flex flex-1 items-center gap-3 rounded-xl border px-4 py-3 text-left transition-all ${
+                      active ? "border-primary bg-primary/10" : "border-border hover:border-muted-foreground/40"
+                    }`}
+                  >
+                    <Icon className={`size-4 ${active ? "text-primary" : "text-muted-foreground"}`} />
+                    <span className="flex flex-col gap-0.5">
+                      <span className={`text-sm capitalize ${active ? "text-foreground" : "text-muted-foreground"}`}>
+                        {m.label}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground">{m.hint}</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            {mode !== "solo" && (
+              <Field label="Max players">
+                <input
+                  type="number"
+                  min="2"
+                  max="50"
+                  value={capacity}
+                  onChange={(e) => setCapacity(e.target.value)}
+                  className="hud-input max-w-40"
+                />
+              </Field>
+            )}
+            <p className="font-mono text-[11px] text-muted-foreground">
+              &gt; {mode === "solo" && "solo dares are private to you and fund from your own wallet"}
+              {mode === "team" && "team rooms are private; each member joins with the invite code"}
+              {mode === "arena" && "arena rooms are public and appear in the arena feed for anyone to join"}
+            </p>
+          </div>
+        </HudPanel>
+      </motion.div>
+
       {/* stake */}
-      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}>
-        <HudPanel label="02 · Stake" icon={<Wallet className="size-3.5" />}>
+      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}>
+        <HudPanel label="03 · Stake" icon={<Wallet className="size-3.5" />}>
           <div className="flex flex-col gap-5">
             <div className="flex gap-2">
               {(["NIM", "USDT"] as Asset[]).map((a) => (
@@ -251,7 +363,7 @@ export default function CreateDare() {
 
       {/* verifier */}
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}>
-        <HudPanel label="03 · Verifier" icon={<CircleAlert className="size-3.5" />}>
+        <HudPanel label="04 · Verifier" icon={<CircleAlert className="size-3.5" />}>
           <div className="flex flex-col gap-5">
             <div className="flex flex-col gap-2 md:flex-row">
               {VERIFIERS.map((v) => {
