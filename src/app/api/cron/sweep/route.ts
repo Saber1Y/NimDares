@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getStore } from "@/lib/db";
 import { adjudicateDare } from "@/lib/adjudicate";
-import { payoutDare } from "@/lib/payout";
+import { payoutDare, settleRoom } from "@/lib/payout";
 import { getNimEscrowInfo, fetchNimBalance } from "@/lib/escrow/nim";
 import { getEvmEscrowInfo, fetchUsdtBalance } from "@/lib/escrow/evm";
 
@@ -63,6 +63,8 @@ export async function POST(req: NextRequest) {
     payouts_settled: 0,
     payouts_pending: 0,
     payouts_failed: 0,
+    rooms_settled: 0,
+    rooms_pending: 0,
   };
 
   const funding = await fundPendingDares();
@@ -78,14 +80,128 @@ export async function POST(req: NextRequest) {
     if (new Date(dare.deadline).getTime() > now) continue;
     stats.expired += 1;
 
+    const chain = dare.asset === "NIM" ? "NIM" : "EVM";
+
+    if (dare.maxCapacity > 1) {
+      // Room settlement: adjudicate each seat independently, then split the pot.
+      const participants = await store.listParticipants(dare.id);
+      let unavailable = false;
+      for (const p of participants) {
+        if (p.aiVerdict !== "WAITING") continue;
+        if (!p.proofImageUrl) {
+          await store.updateParticipant(p.id, {
+            aiVerdict: "INVALID",
+            verdictReason: "no proof submitted before deadline",
+          });
+          continue;
+        }
+        const verdict = await adjudicateDare({
+          ...dare,
+          proofImageUrl: p.proofImageUrl,
+          verifierLink: dare.verifierLink,
+        });
+        if (verdict.status === "UNAVAILABLE") {
+          stats.unresolved_unavailable += 1;
+          unavailable = true;
+          break;
+        }
+        await store.updateParticipant(p.id, {
+          aiVerdict: verdict.status,
+          verdictReason: verdict.reason,
+        });
+        if (verdict.status === "VALID") stats.adjudicated_valid += 1;
+        else stats.adjudicated_invalid += 1;
+      }
+      if (unavailable) {
+        await store.updateDare(dare.id, {
+          verifierResult: { status: "UNAVAILABLE", reason: "verifier credentials missing" },
+        });
+        continue;
+      }
+
+      const settled = await store.listParticipants(dare.id);
+      const result = await settleRoom(dare, settled);
+      let settledCount = 0;
+      let pendingCount = 0;
+      for (const payout of result.payouts) {
+        const status = payout.status;
+        if (status === "SETTLED") settledCount += 1;
+        else if (status === "PENDING") pendingCount += 1;
+        if (payout.participantId === "treasury") {
+          await store.recordTx({
+            dareId: dare.id,
+            kind: "SLASH_POOL",
+            chain,
+            asset: dare.asset,
+            amountRaw: payout.amountRaw,
+            toAddress: payout.address,
+            txHash: payout.txHash,
+            status: status === "SETTLED" ? "CONFIRMED" : "PENDING",
+          });
+          continue;
+        }
+        const p = settled.find((s) => s.id === payout.participantId);
+        await store.updateParticipant(payout.participantId, {
+          aiVerdict: p?.aiVerdict ?? "INVALID",
+          payoutAmountRaw: payout.amountRaw,
+          payoutTxHash: payout.txHash ?? null,
+          payoutStatus: status === "SETTLED" ? "SETTLED" : status === "FAILED" ? "FAILED" : "PENDING",
+        });
+        await store.recordTx({
+          dareId: dare.id,
+          kind: "PAYOUT",
+          chain,
+          asset: dare.asset,
+          amountRaw: payout.amountRaw,
+          toAddress: payout.address,
+          txHash: payout.txHash,
+          status: status === "SETTLED" ? "CONFIRMED" : "PENDING",
+        });
+      }
+      await store.updateDare(dare.id, { status: "SETTLED" });
+      stats.payouts_settled += settledCount;
+      stats.payouts_pending += pendingCount;
+      stats.rooms_settled += 1;
+      continue;
+    }
+
     if (dare.status === "ACTIVE") {
-      // Deadline passed with no proof submitted: the stake is slashed.
-      await store.updateDare(dare.id, {
-        status: "LOST",
-        payoutStatus: null,
-        verifierResult: { status: "INVALID", reason: "no proof submitted before deadline" },
-      });
-      await store.recordTx({ dareId: dare.id, kind: "SLASH_POOL", chain: dare.asset === "NIM" ? "NIM" : "EVM", asset: dare.asset, amountRaw: dare.amountRaw, status: "CONFIRMED" });
+      // Solo, deadline passed with no proof submitted: route to charity or slash pool.
+      const charity = process.env.CHARITY_WALLET;
+      if (charity) {
+        const { buildNimSweepTx } = await import("@/lib/escrow/nim");
+        const res = await buildNimSweepTx(charity, dare.amountRaw, BigInt(process.env.NIM_FEE_LUNA ?? "100"));
+        await store.updateDare(dare.id, {
+          status: "LOST",
+          payoutStatus: res.ok ? "SETTLED" : "FAILED",
+          payoutTxHash: res.ok ? res.txHash : null,
+          verifierResult: { status: "INVALID", reason: "no proof submitted before deadline" },
+        });
+        await store.recordTx({
+          dareId: dare.id,
+          kind: "SLASH_POOL",
+          chain,
+          asset: dare.asset,
+          amountRaw: dare.amountRaw,
+          toAddress: charity,
+          txHash: res.ok ? res.txHash : null,
+          status: res.ok ? "CONFIRMED" : "PENDING",
+        });
+      } else {
+        await store.updateDare(dare.id, {
+          status: "LOST",
+          payoutStatus: null,
+          verifierResult: { status: "INVALID", reason: "no proof submitted before deadline" },
+        });
+        await store.recordTx({
+          dareId: dare.id,
+          kind: "SLASH_POOL",
+          chain,
+          asset: dare.asset,
+          amountRaw: dare.amountRaw,
+          status: "CONFIRMED",
+        });
+      }
       stats.lost_no_proof += 1;
       continue;
     }
@@ -121,7 +237,7 @@ export async function POST(req: NextRequest) {
         payoutStatus: null,
         verifierResult: { status: "INVALID", reason: verdict.reason, source: verdict.source, ruledAt: new Date().toISOString() },
       });
-      await store.recordTx({ dareId: dare.id, kind: "SLASH_POOL", chain: dare.asset === "NIM" ? "NIM" : "EVM", asset: dare.asset, amountRaw: dare.amountRaw, status: "CONFIRMED" });
+      await store.recordTx({ dareId: dare.id, kind: "SLASH_POOL", chain, asset: dare.asset, amountRaw: dare.amountRaw, status: "CONFIRMED" });
       stats.adjudicated_invalid += 1;
     }
   }
