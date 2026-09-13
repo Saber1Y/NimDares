@@ -283,6 +283,7 @@ class PrismaLedgerStore implements LedgerStore {
         maxCapacity: input.maxCapacity ?? 1,
         isPrivate: input.isPrivate ?? true,
         roomCode: input.roomCode ?? null,
+        status: (input.maxCapacity ?? 1) > 1 ? "LOBBY" : "PENDING_FUNDING",
       },
       include: { owner: true },
     });
@@ -525,7 +526,7 @@ class MemoryLedgerStore implements LedgerStore {
       isPrivate: input.isPrivate ?? true,
       roomCode: input.roomCode ?? null,
       deadline: input.deadline,
-      status: "PENDING_FUNDING",
+      status: (input.maxCapacity ?? 1) > 1 ? "LOBBY" : "PENDING_FUNDING",
       verifierKind: input.verifierKind,
       verifierLink: input.verifierLink ?? null,
       verifierResult: null,
