@@ -1,9 +1,19 @@
 "server-only";
 
-import { Address, KeyPair, TransactionBuilder } from "@nimiq/core";
+import { Address, KeyPair, PrivateKey, TransactionBuilder } from "@nimiq/core";
 
-const NIM_NETWORK_ID = Number(process.env.NIM_NETWORK_ID ?? 2); // 2 = mainnet
-const DEFAULT_RPC = "https://rpc.nimiqwatch.com";
+export type NimNetwork = "mainnet" | "testnet";
+
+const NIMIQ_NETWORK: NimNetwork =
+  (process.env.NIMIQ_NETWORK ?? "mainnet").toLowerCase() === "testnet" ? "testnet" : "mainnet";
+const NIM_NETWORK_ID = Number(process.env.NIM_NETWORK_ID ?? (NIMIQ_NETWORK === "testnet" ? 5 : 24)); // Albatross: testnet=5, mainnet=24
+const DEFAULT_RPC =
+  NIMIQ_NETWORK === "testnet" ? "https://rpc.testnet.nimiqwatch.com" : "https://rpc.nimiqwatch.com";
+
+function escrowKeyPair(seed: string): KeyPair {
+  if (seed.length === 128) return KeyPair.fromHex(seed);
+  return KeyPair.derive(PrivateKey.fromHex(seed));
+}
 
 interface RpcResponse<T> {
   result?: { data?: T };
@@ -27,25 +37,31 @@ async function nimRpc<T>(method: string, params: unknown[], rpcUrl: string): Pro
 export interface NimEscrowInfo {
   address: string;
   networkId: number;
+  network: NimNetwork;
   configured: boolean;
 }
 
 export function getNimEscrowInfo(): NimEscrowInfo {
   const seed = process.env.ESCROW_NIM_KEY_HEX;
   if (!seed) {
-    return { address: "", networkId: NIM_NETWORK_ID, configured: false };
+    return { address: "", networkId: NIM_NETWORK_ID, network: NIMIQ_NETWORK, configured: false };
   }
-  const kp = KeyPair.fromHex(seed);
+  const kp = escrowKeyPair(seed);
   return {
     address: kp.toAddress().toUserFriendlyAddress(),
     networkId: NIM_NETWORK_ID,
+    network: NIMIQ_NETWORK,
     configured: true,
   };
 }
 
 export async function fetchNimBlockHeight(rpcUrl?: string): Promise<number> {
   const rpc = rpcUrl ?? process.env.NIM_RPC_URL ?? DEFAULT_RPC;
-  return nimRpc<number>("blockNumber", [], rpc);
+  try {
+    return await nimRpc<number>("getBlockNumber", [], rpc);
+  } catch {
+    return nimRpc<number>("blockNumber", [], rpc);
+  }
 }
 
 export interface NimSweepResult {
@@ -66,7 +82,7 @@ export async function buildNimSweepTx(
   }
   const rpc = process.env.NIM_RPC_URL ?? DEFAULT_RPC;
   try {
-    const kp = KeyPair.fromHex(seed);
+    const kp = escrowKeyPair(seed);
     const from = kp.toAddress();
     const to = Address.fromUserFriendlyAddress(toAddress);
     const height = await fetchNimBlockHeight(rpc);
@@ -111,28 +127,29 @@ export interface NimIncomingTx {
   memo: string | null;
 }
 
-const DEFAULT_API = "https://api.nimiq.com";
+interface NimRpcTx {
+  hash: string;
+  from: string;
+  to: string;
+  value: number | string;
+  senderData?: string;
+  recipientData?: string;
+}
+
+const stripSpaces = (address: string) => address.replace(/\s+/g, "");
 
 export async function fetchNimIncomingTxs(address: string): Promise<NimIncomingTx[]> {
-  const api = process.env.NIM_API_URL ?? DEFAULT_API;
-  const res = await fetch(
-    `${api}/v2/accounts/${encodeURIComponent(address)}/transactions?limit=50`,
-    { cache: "no-store", signal: AbortSignal.timeout(10_000) }
-  );
-  if (!res.ok) throw new Error(`NIM API transactions ${res.status}`);
-  const payload = (await res.json()) as {
-    transactions?: Array<{
-      hash: string;
-      fromAddress: string;
-      toAddress?: string;
-      value: number | string;
-      data?: string | null;
-    }>;
-  };
-  const txs = payload.transactions ?? [];
+  const rpc = process.env.NIM_RPC_URL ?? DEFAULT_RPC;
+  const addr = stripSpaces(address);
+  const txs = await nimRpc<NimRpcTx[]>("getTransactionsByAddress", [addr, 100, null], rpc);
   return txs
-    .filter((t) => t.toAddress === address)
-    .map((t) => ({ hash: t.hash, fromAddress: t.fromAddress, value: BigInt(t.value), memo: parseMemo(t.data) }));
+    .filter((t) => stripSpaces(t.to) === addr)
+    .map((t) => ({
+      hash: t.hash,
+      fromAddress: t.from,
+      value: BigInt(t.value),
+      memo: t.recipientData ? parseMemo(t.recipientData) : null,
+    }));
 }
 
 function parseMemo(data?: string | null): string | null {
