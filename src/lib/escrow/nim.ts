@@ -161,7 +161,7 @@ export async function fetchNimIncomingTxs(address: string): Promise<NimIncomingT
       hash: t.hash,
       fromAddress: t.from,
       value: BigInt(t.value),
-      memo: t.recipientData ? parseMemo(t.recipientData) : null,
+      memo: parseMemo(t.recipientData) ?? parseMemo(t.senderData),
     }));
 }
 
