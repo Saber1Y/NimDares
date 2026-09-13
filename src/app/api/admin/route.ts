@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getStore } from "@/lib/db";
-import { getNimEscrowInfo } from "@/lib/escrow/nim";
+import { getNimEscrowInfo, getNimCharityAddress, getNimCommunityTreasuryAddress } from "@/lib/escrow/nim";
 import { getEvmEscrowInfo } from "@/lib/escrow/evm";
 import { escrowToClient } from "@/lib/serialize";
 
@@ -26,6 +26,11 @@ export async function GET(req: NextRequest) {
     escrowWallets: {
       nim: { address: nimEscrow.address || null, configured: nimEscrow.configured },
       evm: { address: evmEscrow.address || null, configured: evmEscrow.configured },
+    },
+    treasury: {
+      charityAddress: getNimCharityAddress() ?? null,
+      communityTreasuryAddress: getNimCommunityTreasuryAddress() ?? null,
+      network: nimEscrow.network,
     },
     balances: balances.map(escrowToClient),
     transactions: txs.map((t) => ({
