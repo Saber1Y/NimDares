@@ -2,7 +2,15 @@
 
 Decentralized, AI-adjudicated goal-staking platform for the Nimiq Pay Mini Apps Competition.
 
-Users stake NIM or USDT on personal commitments. An autonomous AI control plane (Gemini Vision) or deterministic API verifier (GitHub, Strava) verifies proof-of-completion and automatically settles escrowed funds.
+Stake on a commitment, prove it, get settled. NimDares runs a unified **3-Mode system**:
+
+| Mode | maxCapacity | isPrivate | Description |
+|---|---|---|---|
+| **Solo** | 1 | true | Self-improvement: wallet vs. themselves. Zero-sum refund or charity route. |
+| **Team** | > 1 | true | Private squad, shareable link, not in the public feed. Quitters fund the doers. |
+| **Arena** | > 1 | false | Public colosseum listed on the feed; anyone joins until capacity. |
+
+Every mode reuses the same escrow, adjudication, and settlement engine.
 
 ## Quick Start
 
@@ -10,8 +18,8 @@ Users stake NIM or USDT on personal commitments. An autonomous AI control plane 
 
 - Node.js >= 20
 - npm or pnpm
-- (Optional) PostgreSQL for persistent storage
 - (Optional) `GEMINI_API_KEY` for AI vision adjudication
+- (Optional) Supabase Postgres for persistent storage (`DATABASE_URL`)
 
 ### Setup
 
@@ -26,10 +34,12 @@ cp .env.example .env   # or create .env manually
 
 | Variable | Required | Description |
 |---|---|---|
-| `DATABASE_URL` | No | PostgreSQL connection string. Without it, the app uses an in-memory store (dev mode). |
+| `DATABASE_URL` | No | Supabase Postgres connection string. Without it, the app uses an in-memory store (dev mode). |
+| `GEMINI_API_KEY` | No | Google Gemini API key for vision adjudication. |
 | `ESCROW_NIM_KEY_HEX` | No | NIM escrow private key hex (64 chars). Needed for NIM payouts. |
 | `ESCROW_EVM_KEY_HEX` | No | EVM/Polygon escrow private key hex. Needed for USDT payouts. |
-| `GEMINI_API_KEY` | No | Google Gemini API key for vision adjudication. |
+| `CHARITY_WALLET` | No | NIM address receiving solo losers' stakes. |
+| `COMMUNITY_TREASURY` | No | NIM address receiving the pot when a room has zero winners. |
 | `GITHUB_TOKEN` | No | GitHub PAT for API-based dare verification. |
 | `STRAVA_ACCESS_TOKEN` | No | Strava API token for activity verification. |
 | `CRON_SECRET` | No | Secret for protecting the sweep cron endpoint. |
@@ -43,7 +53,7 @@ cp .env.example .env   # or create .env manually
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open [http://localhost:3100](http://localhost:3100).
 
 ### Build & Production
 
@@ -59,30 +69,31 @@ src/
   app/
     page.tsx                     # Landing page
     app/
-      page.tsx                   # Dashboard (wallet HUD, dare ledger)
-      create/page.tsx            # Create-a-dare flow
-      dare/[id]/page.tsx         # Dare detail + proof submission
+      page.tsx                   # Dashboard + Arena feed + user's dares
+      create/page.tsx            # Create Solo / Team / Arena room
+      dare/[id]/page.tsx         # Room lobby: countdown, participants, join, proof
       admin/page.tsx             # Admin view (escrow balances, tx history)
     api/
       auth/verify/               # Nimiq signature authentication
       user/                      # User profile + dares
-      dares/                     # CRUD + proof submission
-      wallet/reconcile/          # On-chain balance refresh
-      cron/sweep/                # Automated adjudication + payout
+      dares/                     # Create / list / join / proof submission
+      wallet/reconcile/          # On-chain balance refresh + deposit attribution
+      cron/sweep/                # Automated adjudication + settlement
       admin/                     # Admin data endpoint
-  components/                    # Reusable UI (HudPanel, StatusPill, Button, etc.)
-  lib/                           # Business logic, escrow, verifiers, auth
+  components/                    # Reusable UI (HudPanel, RoomCard, StatusPill, Button, etc.)
+  lib/                           # Business logic, escrow, verifiers, auth, settlement
   generated/prisma/              # Generated Prisma client
 ```
 
 ## How It Works
 
 1. **Connect** - User opens NimDares in Nimiq Pay. The SDK silently requests the wallet address.
-2. **Commit** - User creates a dare: title, criteria, stake amount (NIM or USDT), deadline, and verifier type.
-3. **Fund** - User sends funds to the escrow address via the Nimiq Pay checkout sheet.
-4. **Submit Proof** - Before the deadline, user uploads a screenshot (Vision) or links an API activity (GitHub/Strava).
-5. **Adjudicate** - After the deadline, the sweep cron runs Gemini vision or API verification.
-6. **Settle** - Winners get their stake back. Losers' funds go to the slash pool.
+2. **Commit** - User creates a room: title, criteria, stake amount (NIM), deadline, verifier, and mode (Solo / Team / Arena).
+3. **Fund** - Each participant sends funds to the escrow address via the Nimiq Pay checkout sheet, tagged with a per-participant memo.
+4. **Join** - Team rooms live behind a shareable link; Arena rooms are listed on the public feed until capacity is reached.
+5. **Submit Proof** - Before the deadline, each participant uploads a screenshot (Vision) or links an API activity.
+6. **Adjudicate** - After the deadline, the sweep cron runs Gemini vision / API verification.
+7. **Settle** - Solo: winners refunded, losers go to the charity wallet. Team/Arena: winners keep their stake plus a split of the losers' pot (remainder to the slash pool).
 
 ## Verifier Types
 
@@ -95,12 +106,13 @@ src/
 | Method | Path | Description |
 |---|---|---|
 | POST | `/api/auth/verify` | Verify Nimiq signature, create/return user |
-| GET | `/api/dares` | List dares (optionally filtered by `?owner=`) |
-| POST | `/api/dares` | Create a new dare |
-| GET | `/api/dares/[id]` | Get a single dare |
-| POST | `/api/dares/[id]/proof` | Submit proof image or link |
-| POST | `/api/wallet/reconcile` | Refresh on-chain escrow balance |
-| POST | `/api/cron/sweep` | Run adjudication and payout sweep |
+| GET | `/api/dares` | List dares (optionally filtered by `?owner=`, `?mode=`, `?open=`) |
+| POST | `/api/dares` | Create a new dare (Solo / Team / Arena) |
+| GET | `/api/dares/[id]` | Get a single dare with participants |
+| POST | `/api/dares/[id]/join` | Join a room (capacity + roomCode gate) |
+| POST | `/api/dares/[id]/proof` | Submit proof image or link for a seat |
+| POST | `/api/wallet/reconcile` | Refresh on-chain escrow balance + credit funded seats |
+| POST | `/api/cron/sweep` | Run adjudication and settlement sweep |
 | GET | `/api/admin` | Admin view: escrow balances + tx history |
 
 ## Testing
@@ -116,16 +128,15 @@ npm run test:adjudicate
 ## Tech Stack
 
 - **Frontend**: Next.js 16 (App Router), React 19, Tailwind CSS v4, Framer Motion
-- **Backend**: Next.js API Routes, Prisma ORM, PostgreSQL (or in-memory)
+- **Backend**: Next.js API Routes, Prisma ORM, Supabase Postgres (or in-memory)
 - **Wallet**: `@nimiq/mini-app-sdk` (NIM), ethers.js v6 (USDT on Polygon)
-- **AI**: Google Gemini 2.5 Flash via `@google/genai`
+- **AI**: Google Gemini 3.6 Flash via `@google/genai`
 - **Auth**: Ed25519 signature verification via `@noble/ed25519`
 
 ## Competition Entry
 
-- **Platform**: Nimiq Pay Mini Apps Competition Cycle 2
+- **Platform**: Nimiq Pay Mini Apps Competition Cycle 3
 - **License**: MIT
-- **Scoring**: 45 functionality / 25 Nimiq integration / 15 real usage / 10 design / 5 promo
 
 ## License
 

@@ -5,6 +5,12 @@ A user stakes NIM or USDT on a personal commitment (a "dare").
 An AI adjudicator (Gemini vision) or deterministic API verifier (GitHub, Strava) proves the outcome.
 The escrow auto-settles: successful dare pays out the stake, failed dare sweeps it to the slash pool.
 
+The platform uses a single **3-Mode system** driven by `maxCapacity` + `isPrivate`:
+- Solo (`maxCapacity: 1`, private) - self-improvement, zero-sum refund or charity routing.
+- Team (`maxCapacity: > 1`, private) - private squad via shareable link, not in the public feed.
+- Arena (`maxCapacity: > 1`, public) - anyone joins until capacity; listed on the public feed.
+All modes share one backend and one settlement engine.
+
 Entry deadline: Cycle 3 (exact dates re-verify at miniappscompetition.com/rules; application opens ~Oct 2026).
 Competition homepage: miniappscompetition.com.
 Scoring: 45 functionality / 25 Nimiq integration / 15 real usage (25+ unique wallets) / 10 design / 5 promo.
@@ -23,13 +29,19 @@ Trust the links in this file over general knowledge; the Nimiq mini-app ecosyste
 
 1. Design tokens + command-center chrome (dot grid, pill nav, HUD panels).
 2. Landing page at `/`.
-3. App shell + dashboard at `/app`.
+3. App shell + dashboard at `/app` with the Arena feed.
 4. Wallet connect + NimiqProvider context.
-5. Create-a-dare flow with deposit (NIM or USDT).
+5. Create-a-dare flow (Solo / Team / Arena) with deposit (NIM or USDT).
 6. API routes + Prisma models + escrow libs (NIM via `@nimiq/core` nodejs build, USDT via ethers v6).
 7. AI/API verifiers (Gemini vision, GitHub, Strava).
-8. Sweep/slash + payout + reconciliation.
+8. Sweep/slash + payout + reconciliation + room settlement math.
 9. Verification: typecheck, lint, build, E2E on Amoy devnet + browser fallback.
+
+## Data persistence (Supabase + Prisma)
+
+- Production database is **Supabase Postgres** (Vercel-friendly), wired through Prisma 7 (`DATABASE_URL`).
+- `DATABASE_URL` set => Prisma store. Unset => in-memory store explicitly labeled DEV-MODE (dev/demo only, not for judging).
+- Money is `BigInt` raw units (NIM = Luna, USDT = micro USDT). Never `Float` for ledgers.
 
 ## Verified API surface (do not drift from these)
 
@@ -94,12 +106,19 @@ const raw = tx.serialize(); // broadcast-friendly; BufferUtils.toHex for wire
 
 ## Architecture
 
-- Routes: `/` landing, `/app` dashboard, `/app/create`, `/app/dare/[id]` (proof submission), `/app/dare/[id]/proof`.
+- Routes: `/` landing, `/app` dashboard (+ Arena feed), `/app/create` (Solo / Team / Arena),
+  `/app/dare/[id]` (room lobby + countdown + participant list), `/app/dare/[id]/proof` (submit proof).
 - API: `/api/auth/verify`, `/api/user` (me), `/api/dares` (GET list, POST create), `/api/dares/[id]`,
-  `/api/dares/[id]/proof` (vision + api verifiers), `/api/wallet/reconcile`, `/api/cron/sweep`.
+  `/api/dares/[id]/join` (join a room: capacity + roomCode gate, creates Participant), `/api/dares/[id]/proof`
+  (vision + api verifiers per participant), `/api/wallet/reconcile`, `/api/cron/sweep`.
 - Escrow model: hot wallet holds inflows; ledger tracks expected balances per dare; sweep NEVER pays more than expected balance.
 - Slashing: lazy sweep on dashboard read + scheduled cron. Vercel Hobby cron is 1/day max.
 - Reconciliation: query NIM RPC (`api.nimiq.com/v2/...`) and Polygon RPC for incoming deposits; mark dare funded when balance arrives.
+- Deposit attribution: participants fund seats via `sendBasicTransactionWithData` with memo
+  `nimdares:<dareId>:<participantId>`; reconcile parses the memo and credits the seat. Never trust client-claimed tx hashes.
+- Settlement: `/api/cron/sweep` on deadline expiry. Solo = refund VALID / route INVALID to `CHARITY_WALLET`.
+  Team/Arena = winners split `stake + floor(slashedPot / winners)`; zero winners => whole pot to `COMMUNITY_TREASURY`.
+  Remainder stays in the slash pool. Mark room `SETTLED`.
 
 ## Design (command-center console)
 
@@ -114,25 +133,25 @@ const raw = tx.serialize(); // broadcast-friendly; BufferUtils.toHex for wire
 
 - Next.js 16 (breaking changes vs older docs; see `node_modules/next/dist/docs/`). Route handlers standard, `params` are Promises, typed `LayoutProps<'/x'>`.
 - Tailwind v4, Turbopack dev. Package name `nimdares`. Commit + push per logical change to `gh remote origin` (github.com/Saber1Y/NimDares).
-- Prisma for persistence (Postgres `DATABASE_URL`). When unset, dev falls back to an in-memory store explicitly labeled DEV-MODE.
+- Prisma for persistence (Postgres `DATABASE_URL` via Supabase). When unset, dev falls back to an in-memory store explicitly labeled DEV-MODE.
+- Rooms are NIM-first for the first cut; USDT rooms deferred. VISION is the room verifier; GITHUB/STRAVA stay solo-only until room adjudication is proven.
 
 ## Prisma models
 
 - User (address, publicKey, createdAt)
-- Dare (id, ownerAddress, title, description, criteria, asset NIM|USDT, amountLuna, amountUSDT, deadline, status PENDING_FUNDING|ACTIVE|SUBMITTED|ADJUDICATED|WON|LOST|SWEEPING, verifierKind VISION|GITHUB|STRAVA, proofImageUrl, verifierResult json, adjudicatedAt, payoutStatus PENDING|SETTLED|FAILED, payoutTxHash)
+- Dare (= room; id, ownerAddress, title, description, criteria, asset NIM|USDT, amountRaw BigInt, deadline,
+  status PENDING_FUNDING|LOBBY|ACTIVE|SUBMITTED|SETTLED|WON|LOST|SWEEPING, verifierKind VISION|GITHUB|STRAVA,
+  maxCapacity Int, isPrivate Boolean, roomCode String?, proofImageUrl, verifierResult json, adjudicatedAt,
+  payoutStatus PENDING|SETTLED|FAILED, payoutTxHash)
+- Participant (= seat in a room; id, dareId, userAddress, stakeRaw BigInt, fundingTxHash, fundedAt, proofImageUrl,
+  aiVerdict PENDING|VALID|INVALID|WAITING, verdictReason, payoutAmountRaw BigInt, payoutTxHash, payoutStatus)
 - Transaction (hash, kind, asset, amount, status)
 - EscrowBalance (address, asset, expectedBalance, updatedAt)
 
 ## Roadmap (post-competition)
 
-### Group Dares
+### Rooms expansion
 
-- Positioning: the Cycle 3 submission stays a rock-solid solo personal-commitment escrow. Group dares are the later growth layer.
-- Concept: friends form a "dare group" (`potId`/`groupId`). Each member stakes toward the same dare objective; the pot is one shared escrow balance.
-- Flows to add later:
-  - `potId`/`groupId` field on the Dare record; group membership + per-member stakes.
-  - Split payouts in `src/lib/payout.ts`: winners recover stake plus their share of the pool, slashers forfeit into the pot.
-  - Per-member adjudication identical to solo (each member submits their own VISION/GITHUB/STRAVA proof and resolves independently).
-  - Head-to-head mode (loser's stake passes to winner) and an invite/viral loop (share group link via Nimiq Pay).
-  - Global + group leaderboards.
+- USDT rooms (Polygon), per-member GITHUB / STRAVA adjudication inside rooms.
+- Global + group leaderboards, head-to-head mode (loser's stake passes to winner), invite/viral loop via Nimiq Pay deep links.
 - Principle from the product discussion: group participation should make dares more fun and social, never more complex to adjudicate than the single-user flow.
