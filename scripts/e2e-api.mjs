@@ -133,4 +133,121 @@ assert(r.status === 200 && r.body?.reconciled === true, `reconcile reads on-chai
 r = await json(`${BASE}/api/cron/sweep`, { method: "POST" });
 assert(r.status === 200 && r.body?.ok === true, `sweep runs (${JSON.stringify(r.body?.stats)})`);
 
+// ---- Room (solo/team/arena) flows ----
+const roomDeadline = new Date(Date.now() + 48 * 3600_000).toISOString();
+const bob = KeyPair.generate();
+const bobPub = bob.publicKey.toHex();
+const bobMsg = `nimdares-login:${Date.now()}`;
+const bobDigest = sha256(new TextEncoder().encode(bobMsg));
+const bobSig = bob.sign(bobDigest).toHex();
+const bobAuth = `Nimiq ${bobPub}:${bobSig}:${Buffer.from(bobMsg).toString("base64url")}`;
+const charlie = KeyPair.generate();
+const charliePub = charlie.publicKey.toHex();
+const charlieMsg = `nimdares-login:${Date.now()}`;
+const charlieDigest = sha256(new TextEncoder().encode(charlieMsg));
+const charlieSig = charlie.sign(charlieDigest).toHex();
+const charlieAuth = `Nimiq ${charliePub}:${charlieSig}:${Buffer.from(charlieMsg).toString("base64url")}`;
+
+// 11. Create team room with explicit capacity
+r = await json(`${BASE}/api/dares`, {
+  method: "POST",
+  headers: { "content-type": "application/json", authorization: authHeader },
+  body: JSON.stringify({
+    title: "Team sprint: 10k runs",
+    description: "Together the team runs a cumulative 10k this week.",
+    criteria: "Each member shows a completed run tally by the deadline.",
+    asset: "NIM",
+    amount: 2,
+    deadline: roomDeadline,
+    verifierKind: "VISION",
+    mode: "team",
+    maxCapacity: 3,
+  }),
+});
+assert(r.status === 201 && r.body?.ok === true, `create team room succeeds (${r.status})`);
+const teamId = r.body?.dare?.id;
+assert(r.body?.dare?.status === "LOBBY", `team room starts LOBBY`);
+assert(r.body?.dare?.maxCapacity === 3, `team room stores maxCapacity`);
+assert(r.body?.dare?.isPrivate === true, `team room is private by default`);
+const teamRoomCode = r.body?.dare?.roomCode;
+assert(typeof teamRoomCode === "string" && teamRoomCode.length === 6, `team room has a 6-char roomCode`);
+
+// 12. Create arena (public) room
+r = await json(`${BASE}/api/dares`, {
+  method: "POST",
+  headers: { "content-type": "application/json", authorization: authHeader },
+  body: JSON.stringify({
+    title: "Arena: longest plank",
+    description: "Open table: whoever holds the longest plank at check-in wins the pot.",
+    criteria: "Share a live plank timer at the deadline.",
+    asset: "NIM",
+    amount: 1,
+    deadline: roomDeadline,
+    verifierKind: "VISION",
+    mode: "arena",
+    maxCapacity: 4,
+  }),
+});
+assert(r.status === 201 && r.body?.ok === true, `create arena room succeeds (${r.status})`);
+const arenaId = r.body?.dare?.id;
+assert(r.body?.dare?.isPrivate === false, `arena room is public`);
+assert(r.body?.dare?.roomCode === null || typeof r.body?.dare?.roomCode === "string", `arena room carries a share code`);
+
+// 13. Open feed lists arena rooms only
+r = await json(`${BASE}/api/dares?mode=open`);
+assert(r.status === 200 && Array.isArray(r.body?.rooms), `open feed returns rooms`);
+assert(r.body?.rooms?.some((d) => d.id === arenaId), `arena room appears in open feed`);
+assert(!r.body?.rooms?.some((d) => d.id === teamId), `private team room is hidden from open feed`);
+assert(!r.body?.rooms?.some((d) => d.maxCapacity <= 1), `solo dares are hidden from open feed`);
+
+// 14. Get room exposes participants with the creator seated
+r = await json(`${BASE}/api/dares/${teamId}`);
+assert(r.status === 200 && Array.isArray(r.body?.participants), `get room returns participants`);
+assert(r.body?.participants?.length === 1, `creator holds the first seat`);
+assert(r.body?.participants?.[0]?.userAddress === address, `creator seat belongs to creator`);
+
+// 15. Join room with a valid code as a second user
+r = await json(`${BASE}/api/dares/${teamId}/join`, {
+  method: "POST",
+  headers: { "content-type": "application/json", authorization: bobAuth },
+  body: JSON.stringify({ roomCode: teamRoomCode }),
+});
+assert(r.status === 201 && r.body?.ok === true, `join team room with code succeeds (${r.status})`);
+assert(
+  r.body?.funding?.memo === `nimdares:${teamId}:${r.body?.participant?.id}`,
+  `join returns per-seat funding memo nimdares:<dareId>:<participantId>`
+);
+assert(
+  r.body?.funding?.escrowConfigured === false ? r.body?.funding?.escrowAddress === null : typeof r.body?.funding?.escrowAddress === "string",
+  `join reports escrow honestly (configured=${r.body?.funding?.escrowConfigured})`
+);
+const bobParticipantId = r.body?.funding?.participant?.id;
+
+// 16. Get room now shows two seats
+r = await json(`${BASE}/api/dares/${teamId}`);
+assert(r.body?.participants?.length === 2, `room lists creator and joiner seats`);
+
+// 17. Duplicate join is rejected
+r = await json(`${BASE}/api/dares/${teamId}/join`, {
+  method: "POST",
+  headers: { "content-type": "application/json", authorization: bobAuth },
+  body: JSON.stringify({ roomCode: teamRoomCode }),
+});
+assert(r.status === 409, `duplicate join rejected (${r.status})`);
+
+// 18. Wrong room code is rejected
+r = await json(`${BASE}/api/dares/${teamId}/join`, {
+  method: "POST",
+  headers: { "content-type": "application/json", authorization: charlieAuth },
+  body: JSON.stringify({ roomCode: "XXXXXX" }),
+});
+assert(r.status === 403, `wrong room code rejected (${r.status})`);
+
+// 19. Joining a solo dare is rejected
+r = await json(`${BASE}/api/dares/${dareId}/join`, {
+  method: "POST",
+  headers: { "content-type": "application/json", authorization: charlieAuth },
+});
+assert(r.status === 409, `solo dare join rejected (${r.status})`);
+
 console.log("done.");
