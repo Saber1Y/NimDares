@@ -23,6 +23,9 @@ export interface NewDareInput {
   deadline: Date;
   verifierKind: VerifierKind;
   verifierLink?: string | null;
+  maxCapacity?: number;
+  isPrivate?: boolean;
+  roomCode?: string | null;
 }
 
 export interface DareRecord {
@@ -33,6 +36,9 @@ export interface DareRecord {
   criteria: string;
   asset: Asset;
   amountRaw: bigint;
+  maxCapacity: number;
+  isPrivate: boolean;
+  roomCode: string | null;
   deadline: Date;
   status: DareStatus;
   verifierKind: VerifierKind;
@@ -44,6 +50,28 @@ export interface DareRecord {
   payoutStatus: PayoutStatus | null;
   fundedAt: Date | null;
   createdAt: Date;
+}
+
+export interface ParticipantRecord {
+  id: string;
+  dareId: string;
+  userAddress: string;
+  stakeRaw: bigint;
+  fundingTxHash: string | null;
+  fundedAt: Date | null;
+  proofImageUrl: string | null;
+  aiVerdict: "VALID" | "INVALID" | "UNAVAILABLE" | "WAITING";
+  verdictReason: string | null;
+  payoutAmountRaw: bigint;
+  payoutTxHash: string | null;
+  payoutStatus: PayoutStatus;
+  joinedAt: Date;
+}
+
+export interface NewParticipantInput {
+  dareId: string;
+  userAddress: string;
+  stakeRaw: bigint;
 }
 
 export interface NewTxInput {
@@ -97,10 +125,18 @@ export interface LedgerStore {
   createDare(input: NewDareInput): Promise<DareRecord>;
   getDare(id: string): Promise<DareRecord | null>;
   listDares(ownerAddress?: string): Promise<DareRecord[]>;
+  listOpenRooms(): Promise<DareRecord[]>;
   updateDare(
     id: string,
     patch: Partial<Omit<DareRecord, "id">>
   ): Promise<DareRecord | null>;
+  createParticipant(input: NewParticipantInput): Promise<ParticipantRecord>;
+  getParticipant(id: string): Promise<ParticipantRecord | null>;
+  listParticipants(dareId: string): Promise<ParticipantRecord[]>;
+  updateParticipant(
+    id: string,
+    patch: Partial<Omit<ParticipantRecord, "id">>
+  ): Promise<ParticipantRecord | null>;
   recordTx(input: NewTxInput): Promise<{ id: string }>;
   getEscrowBalance(
     asset: Asset,
@@ -138,6 +174,9 @@ function fromPrismaDare(d: {
   criteria: string;
   asset: Asset;
   amountRaw: bigint;
+  maxCapacity: number;
+  isPrivate: boolean;
+  roomCode: string | null;
   deadline: Date;
   status: DareStatus;
   verifierKind: VerifierKind;
@@ -158,6 +197,9 @@ function fromPrismaDare(d: {
     criteria: d.criteria,
     asset: d.asset,
     amountRaw: d.amountRaw,
+    maxCapacity: d.maxCapacity,
+    isPrivate: d.isPrivate,
+    roomCode: d.roomCode,
     deadline: d.deadline,
     status: d.status,
     verifierKind: d.verifierKind,
@@ -169,6 +211,38 @@ function fromPrismaDare(d: {
     payoutStatus: d.payoutStatus,
     fundedAt: d.fundedAt,
     createdAt: d.createdAt,
+  };
+}
+
+function fromPrismaParticipant(p: {
+  id: string;
+  dareId: string;
+  userAddress: string;
+  stakeRaw: bigint;
+  fundingTxHash: string | null;
+  fundedAt: Date | null;
+  proofImageUrl: string | null;
+  aiVerdict: "VALID" | "INVALID" | "UNAVAILABLE" | "WAITING";
+  verdictReason: string | null;
+  payoutAmountRaw: bigint;
+  payoutTxHash: string | null;
+  payoutStatus: PayoutStatus;
+  joinedAt: Date;
+}): ParticipantRecord {
+  return {
+    id: p.id,
+    dareId: p.dareId,
+    userAddress: p.userAddress,
+    stakeRaw: p.stakeRaw,
+    fundingTxHash: p.fundingTxHash,
+    fundedAt: p.fundedAt,
+    proofImageUrl: p.proofImageUrl,
+    aiVerdict: p.aiVerdict,
+    verdictReason: p.verdictReason,
+    payoutAmountRaw: p.payoutAmountRaw,
+    payoutTxHash: p.payoutTxHash,
+    payoutStatus: p.payoutStatus,
+    joinedAt: p.joinedAt,
   };
 }
 
@@ -206,6 +280,9 @@ class PrismaLedgerStore implements LedgerStore {
         deadline: input.deadline,
         verifierKind: input.verifierKind,
         verifierLink: input.verifierLink ?? null,
+        maxCapacity: input.maxCapacity ?? 1,
+        isPrivate: input.isPrivate ?? true,
+        roomCode: input.roomCode ?? null,
       },
       include: { owner: true },
     });
@@ -230,6 +307,16 @@ class PrismaLedgerStore implements LedgerStore {
     return dares.map(fromPrismaDare);
   }
 
+  async listOpenRooms() {
+    const rooms = await this.db().dare.findMany({
+      where: { isPrivate: false, status: { in: ["LOBBY", "ACTIVE"] } },
+      include: { owner: true },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    });
+    return rooms.map(fromPrismaDare);
+  }
+
   async updateDare(id: string, patch: Partial<Omit<DareRecord, "id">>) {
     const data: Record<string, unknown> = {};
     if (patch.title !== undefined) data.title = patch.title;
@@ -248,12 +335,57 @@ class PrismaLedgerStore implements LedgerStore {
     if (patch.payoutTxHash !== undefined) data.payoutTxHash = patch.payoutTxHash;
     if (patch.payoutStatus !== undefined) data.payoutStatus = patch.payoutStatus;
     if (patch.fundedAt !== undefined) data.fundedAt = patch.fundedAt;
+    if (patch.maxCapacity !== undefined) data.maxCapacity = patch.maxCapacity;
+    if (patch.isPrivate !== undefined) data.isPrivate = patch.isPrivate;
+    if (patch.roomCode !== undefined) data.roomCode = patch.roomCode;
     const d = await this.db().dare.update({
       where: { id },
       data,
       include: { owner: true },
     });
     return fromPrismaDare(d);
+  }
+
+  async createParticipant(input: NewParticipantInput) {
+    await this.getOrCreateUser(input.userAddress);
+    const p = await this.db().participant.create({
+      data: {
+        dareId: input.dareId,
+        userAddress: input.userAddress,
+        stakeRaw: input.stakeRaw,
+      },
+    });
+    return fromPrismaParticipant(p);
+  }
+
+  async getParticipant(id: string) {
+    const p = await this.db().participant.findUnique({ where: { id } });
+    return p ? fromPrismaParticipant(p) : null;
+  }
+
+  async listParticipants(dareId: string) {
+    const rows = await this.db().participant.findMany({
+      where: { dareId },
+      orderBy: { joinedAt: "asc" },
+    });
+    return rows.map(fromPrismaParticipant);
+  }
+
+  async updateParticipant(id: string, patch: Partial<Omit<ParticipantRecord, "id">>) {
+    const data: Record<string, unknown> = {};
+    if (patch.dareId !== undefined) data.dareId = patch.dareId;
+    if (patch.userAddress !== undefined) data.userAddress = patch.userAddress;
+    if (patch.stakeRaw !== undefined) data.stakeRaw = patch.stakeRaw;
+    if (patch.fundingTxHash !== undefined) data.fundingTxHash = patch.fundingTxHash;
+    if (patch.fundedAt !== undefined) data.fundedAt = patch.fundedAt;
+    if (patch.proofImageUrl !== undefined) data.proofImageUrl = patch.proofImageUrl;
+    if (patch.aiVerdict !== undefined) data.aiVerdict = patch.aiVerdict;
+    if (patch.verdictReason !== undefined) data.verdictReason = patch.verdictReason;
+    if (patch.payoutAmountRaw !== undefined) data.payoutAmountRaw = patch.payoutAmountRaw;
+    if (patch.payoutTxHash !== undefined) data.payoutTxHash = patch.payoutTxHash;
+    if (patch.payoutStatus !== undefined) data.payoutStatus = patch.payoutStatus;
+    const p = await this.db().participant.update({ where: { id }, data });
+    return fromPrismaParticipant(p);
   }
 
   async recordTx(input: NewTxInput) {
@@ -359,6 +491,7 @@ class MemoryLedgerStore implements LedgerStore {
   label = "memory";
   private users = new Map<string, { id: string; address: string }>();
   private dares = new Map<string, DareRecord>();
+  private participants = new Map<string, ParticipantRecord>();
   private txs: { id: string; kind: NewTxInput["kind"]; asset: Asset }[] = [];
   private escrow = new Map<string, EscrowBalanceRecord>();
 
@@ -388,6 +521,9 @@ class MemoryLedgerStore implements LedgerStore {
       criteria: input.criteria,
       asset: input.asset,
       amountRaw: input.amountRaw,
+      maxCapacity: input.maxCapacity ?? 1,
+      isPrivate: input.isPrivate ?? true,
+      roomCode: input.roomCode ?? null,
       deadline: input.deadline,
       status: "PENDING_FUNDING",
       verifierKind: input.verifierKind,
@@ -418,11 +554,61 @@ class MemoryLedgerStore implements LedgerStore {
       : all.slice(0, 50);
   }
 
+  async listOpenRooms() {
+    return [...this.dares.values()]
+      .filter(
+        (d) =>
+          !d.isPrivate &&
+          (d.status === "LOBBY" || d.status === "ACTIVE")
+      )
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(0, 50);
+  }
+
   async updateDare(id: string, patch: Partial<Omit<DareRecord, "id">>) {
     const cur = this.dares.get(id);
     if (!cur) return null;
     const next = { ...cur, ...patch, id: cur.id };
     this.dares.set(id, next);
+    return next;
+  }
+
+  async createParticipant(input: NewParticipantInput) {
+    await this.getOrCreateUser(input.userAddress);
+    const p: ParticipantRecord = {
+      id: randomUUID(),
+      dareId: input.dareId,
+      userAddress: input.userAddress,
+      stakeRaw: input.stakeRaw,
+      fundingTxHash: null,
+      fundedAt: null,
+      proofImageUrl: null,
+      aiVerdict: "WAITING",
+      verdictReason: null,
+      payoutAmountRaw: 0n,
+      payoutTxHash: null,
+      payoutStatus: null,
+      joinedAt: new Date(),
+    };
+    this.participants.set(p.id, p);
+    return p;
+  }
+
+  async getParticipant(id: string) {
+    return this.participants.get(id) ?? null;
+  }
+
+  async listParticipants(dareId: string) {
+    return [...this.participants.values()]
+      .filter((p) => p.dareId === dareId)
+      .sort((a, b) => a.joinedAt.getTime() - b.joinedAt.getTime());
+  }
+
+  async updateParticipant(id: string, patch: Partial<Omit<ParticipantRecord, "id">>) {
+    const cur = this.participants.get(id);
+    if (!cur) return null;
+    const next = { ...cur, ...patch, id: cur.id };
+    this.participants.set(id, next);
     return next;
   }
 
