@@ -1,7 +1,7 @@
 "server-only";
 
 import type { DareRecord, ParticipantRecord } from "@/lib/db";
-import { buildNimSweepTx, getNimEscrowInfo } from "@/lib/escrow/nim";
+import { buildNimSweepTx, getNimEscrowInfo, getNimCommunityTreasuryAddress } from "@/lib/escrow/nim";
 import { getEvmEscrowInfo, sendUsdtPayout } from "@/lib/escrow/evm";
 import { NIM_DECIMALS } from "@/lib/config";
 
@@ -77,7 +77,7 @@ export async function settleRoom(
   if (!escrow.configured) {
     const reason = "ESCROW_NIM_KEY_HEX not configured";
     if (winners.length === 0) {
-      const treasury = process.env.COMMUNITY_TREASURY;
+      const treasury = getNimCommunityTreasuryAddress();
       return {
         ...empty,
         reason: treasury ? reason : "COMMUNITY_TREASURY not configured",
@@ -100,7 +100,7 @@ export async function settleRoom(
   }
 
   if (winners.length === 0) {
-    const treasury = process.env.COMMUNITY_TREASURY;
+    const treasury = getNimCommunityTreasuryAddress();
     if (!treasury) {
       return { ...empty, reason: "COMMUNITY_TREASURY not configured" };
     }

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getStore } from "@/lib/db";
 import { adjudicateDare } from "@/lib/adjudicate";
 import { payoutDare, settleRoom } from "@/lib/payout";
-import { getNimEscrowInfo, fetchNimBalance } from "@/lib/escrow/nim";
+import { getNimEscrowInfo, getNimCharityAddress, fetchNimBalance } from "@/lib/escrow/nim";
 import { getEvmEscrowInfo, fetchUsdtBalance } from "@/lib/escrow/evm";
 
 async function fundPendingDares() {
@@ -179,7 +179,7 @@ export async function POST(req: NextRequest) {
 
     if (dare.status === "ACTIVE") {
       // Solo, deadline passed with no proof submitted: route to charity or slash pool.
-      const charity = process.env.CHARITY_WALLET;
+      const charity = getNimCharityAddress();
       if (charity) {
         const { buildNimSweepTx } = await import("@/lib/escrow/nim");
         const res = await buildNimSweepTx(charity, dare.amountRaw, BigInt(process.env.NIM_FEE_LUNA ?? "100"));
