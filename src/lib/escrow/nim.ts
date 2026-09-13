@@ -10,6 +10,19 @@ const NIM_NETWORK_ID = Number(process.env.NIM_NETWORK_ID ?? (NIMIQ_NETWORK === "
 const DEFAULT_RPC =
   NIMIQ_NETWORK === "testnet" ? "https://rpc.testnet.nimiqwatch.com" : "https://rpc.nimiqwatch.com";
 
+function getNetworkEnv(base: string): string | undefined {
+  const keyed = process.env[`${base}_${NIMIQ_NETWORK.toUpperCase()}`];
+  return keyed ?? process.env[base];
+}
+
+export function getNimCharityAddress(): string | undefined {
+  return getNetworkEnv("CHARITY_WALLET");
+}
+
+export function getNimCommunityTreasuryAddress(): string | undefined {
+  return getNetworkEnv("COMMUNITY_TREASURY");
+}
+
 function escrowKeyPair(seed: string): KeyPair {
   if (seed.length === 128) return KeyPair.fromHex(seed);
   return KeyPair.derive(PrivateKey.fromHex(seed));
