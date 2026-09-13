@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getStore } from "@/lib/db";
-import { fetchNimBalance } from "@/lib/escrow/nim";
+import { fetchNimBalance, fetchNimIncomingTxs } from "@/lib/escrow/nim";
 import { fetchUsdtBalance } from "@/lib/escrow/evm";
 
 export async function POST(req: NextRequest) {
@@ -33,6 +33,35 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  let credited = 0;
+  if (asset === "NIM") {
+    let txs = [];
+    try {
+      txs = await fetchNimIncomingTxs(address);
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    }
+    for (const tx of txs) {
+      if (!tx.memo) continue;
+      const parts = tx.memo.split(":");
+      if (parts.length !== 3 || parts[0] !== "nimdares") continue;
+      const [, dareId, participantId] = parts;
+      const participant = await store.getParticipant(participantId);
+      if (!participant || participant.dareId !== dareId) continue;
+      if (participant.fundedAt) continue;
+      if (participant.stakeRaw !== tx.value) continue;
+      await store.updateParticipant(participantId, {
+        fundingTxHash: tx.hash,
+        fundedAt: new Date(),
+      });
+      const room = await store.getDare(dareId);
+      if (room && room.status === "LOBBY") {
+        await store.updateDare(dareId, { status: "ACTIVE", fundedAt: new Date() });
+      }
+      credited += 1;
+    }
+  }
+
   return NextResponse.json({
     ok: true,
     asset,
@@ -42,6 +71,7 @@ export async function POST(req: NextRequest) {
     ledger: row.balanceRaw.toString(),
     reserved: row.reservedRaw.toString(),
     reconciled: onChain !== null,
+    seatsCredited: credited,
     error,
     store: store.label,
   });
