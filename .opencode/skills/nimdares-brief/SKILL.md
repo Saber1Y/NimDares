@@ -43,3 +43,16 @@ NimDares is a decentralized commitment escrow mini-app built for **Nimiq Pay** (
 2. **Git Workflow:** Push logical changes directly to `origin/main` (`git@github.com:Saber1Y/NimDares.git`). Never add agent co-author metadata or em dashes ("—").
 3. **Environment & Secrets:** Missing environment keys (DATABASE_URL, GEMINI_API_KEY, escrow private keys) must fail gracefully with honest `UNAVAILABLE` or `DEV / SIMULATED` states—never fake success.
 4. **Design Quality:** Follow the established command-center console look (dark tech, high-end typography, HUD panels, WCAG contrast, dual-mode / dark consistency).
+
+---
+
+## Roadmap: Group Dares (post-competition)
+- **Positioning:** The Cycle 3 submission stays a rock-solid solo personal-commitment escrow (user stakes on their own dare). Group dares are the post-competition growth layer, not part of the judging build.
+- **Concept:** Friends form a "dare group" or `potId`/`groupId`. Each member enters a stake toward the same dare objective; the pot is one escrow balance shared across members.
+- **Flows to add later:**
+  - `potId`/`groupId` field on the dare record; group membership + per-member stakes.
+  - Split payouts in `src/lib/payout.ts`: winners get their stake back plus a share of the pool, slashers forfeit into the shared pot.
+  - Per-member adjudication identical to solo (each member submits their own VISION/GITHUB/STRAVA proof and is resolved independently).
+  - Head-to-head mode (two friends, loser's stake passes to the winner) and invite/viral loop (share a group link via Nimiq Pay).
+  - Global + group leaderboards.
+- **Guiding principle from product discussion:** group participation should make dares *more* fun and social, never more complex to adjudicate than the single-user flow.

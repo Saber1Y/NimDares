@@ -122,3 +122,17 @@ const raw = tx.serialize(); // broadcast-friendly; BufferUtils.toHex for wire
 - Dare (id, ownerAddress, title, description, criteria, asset NIM|USDT, amountLuna, amountUSDT, deadline, status PENDING_FUNDING|ACTIVE|SUBMITTED|ADJUDICATED|WON|LOST|SWEEPING, verifierKind VISION|GITHUB|STRAVA, proofImageUrl, verifierResult json, adjudicatedAt, payoutStatus PENDING|SETTLED|FAILED, payoutTxHash)
 - Transaction (hash, kind, asset, amount, status)
 - EscrowBalance (address, asset, expectedBalance, updatedAt)
+
+## Roadmap (post-competition)
+
+### Group Dares
+
+- Positioning: the Cycle 3 submission stays a rock-solid solo personal-commitment escrow. Group dares are the later growth layer.
+- Concept: friends form a "dare group" (`potId`/`groupId`). Each member stakes toward the same dare objective; the pot is one shared escrow balance.
+- Flows to add later:
+  - `potId`/`groupId` field on the Dare record; group membership + per-member stakes.
+  - Split payouts in `src/lib/payout.ts`: winners recover stake plus their share of the pool, slashers forfeit into the pot.
+  - Per-member adjudication identical to solo (each member submits their own VISION/GITHUB/STRAVA proof and resolves independently).
+  - Head-to-head mode (loser's stake passes to winner) and an invite/viral loop (share group link via Nimiq Pay).
+  - Global + group leaderboards.
+- Principle from the product discussion: group participation should make dares more fun and social, never more complex to adjudicate than the single-user flow.
