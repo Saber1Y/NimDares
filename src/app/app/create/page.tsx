@@ -2,12 +2,14 @@
 
 import { useState } from "react";
 import { motion } from "motion/react";
-import { ArrowLeft, ArrowRight, GitBranch, Bike, Plus, Wallet, CircleAlert, Check, ImageIcon, Users, Globe, Hash } from "lucide-react";
+import { ArrowLeft, ArrowRight, GitBranch, Bike, Plus, Wallet, CircleAlert, Check, ImageIcon, Users, Globe, Hash, Copy } from "lucide-react";
 import { useNimiqWallet } from "@/components/nimiq-provider";
 import { HudPanel } from "@/components/ui/hud-panel";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Button } from "@/components/ui/button";
 import type { Asset, RoomMode, VerifierKind } from "@/lib/types";
+
+type FundStep = "funding" | "paid" | "cancelled" | "failed";
 
 type CreateState =
   | { phase: "idle" }
@@ -15,6 +17,8 @@ type CreateState =
   | { phase: "submitting" }
   | {
       phase: "created";
+      step: FundStep;
+      error: string | null;
       escrowAddress: string | null;
       escrowConfigured: boolean;
       asset: Asset;
@@ -23,6 +27,7 @@ type CreateState =
       maxCapacity: number;
       roomCode: string | null;
       dareId: string;
+      participantId: string | null;
     }
   | { phase: "error"; message: string };
 
@@ -59,6 +64,39 @@ export default function CreateDare() {
   const [state, setState] = useState<CreateState>({ phase: "idle" });
 
   const needsLink = verifier === "GITHUB" || verifier === "STRAVA";
+
+  async function stakeAndFund(
+    created: Extract<CreateState, { phase: "created" }>,
+    authHeader: string
+  ) {
+    if (created.asset !== "NIM" || !created.escrowAddress) {
+      setState({ ...created, step: "failed", error: "native payment is only for NIM escrow" });
+      return;
+    }
+    const memoId = created.participantId ?? wallet.address!.replace(/\s+/g, "");
+    const memo = `nimdares:${created.dareId}:${memoId}`;
+    const valueLuna = Math.round(created.amount * 100_000);
+    const res = await wallet.sendPayTransaction(created.escrowAddress, valueLuna, memo);
+    if (!res.ok) {
+      setState({ ...created, step: "cancelled", error: res.error ?? null });
+      return;
+    }
+    try {
+      const fund = await fetch(`/api/dares/${created.dareId}/fund`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: authHeader },
+        body: JSON.stringify({ asset: created.asset }),
+      });
+      const data = (await fund.json()) as { ok?: boolean; credited?: number; error?: string };
+      if (!fund.ok || !data.ok || !data.credited) {
+        setState({ ...created, step: "failed", error: data.error ?? "payment not confirmed on-chain yet" });
+        return;
+      }
+      setState({ ...created, step: "paid" });
+    } catch (e) {
+      setState({ ...created, step: "failed", error: e instanceof Error ? e.message : String(e) });
+    }
+  }
 
   async function handleCreate() {
     if (!wallet.address || wallet.status !== "ready") {
@@ -101,13 +139,21 @@ export default function CreateDare() {
           maxCapacity: mode === "solo" ? undefined : Number(capacity),
         }),
       });
-      const data = await res.json();
+      const data = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        escrow?: { address: string | null; configured: boolean };
+        dare?: { id: string; maxCapacity: number; roomCode: string | null };
+        participants?: { id: string }[];
+      };
       if (!res.ok || !data.ok) {
         setState({ phase: "error", message: data?.error ?? `HTTP ${res.status}` });
         return;
       }
-      setState({
+      const created: Extract<CreateState, { phase: "created" }> = {
         phase: "created",
+        step: asset === "NIM" ? "funding" : "cancelled",
+        error: null,
         escrowAddress: data.escrow?.address ?? null,
         escrowConfigured: data.escrow?.configured ?? false,
         asset,
@@ -116,14 +162,21 @@ export default function CreateDare() {
         maxCapacity: data.dare?.maxCapacity ?? 1,
         roomCode: data.dare?.roomCode ?? null,
         dareId: data.dare?.id ?? "",
-      });
+        participantId: data.participants?.[0]?.id ?? null,
+      };
+      setState(created);
+      if (created.asset === "NIM") {
+        void stakeAndFund(created, authHeader);
+      }
     } catch (e) {
       setState({ phase: "error", message: e instanceof Error ? e.message : String(e) });
     }
   }
 
   if (state.phase === "created") {
-    const isRoom = state.mode !== "solo";
+    const c = state;
+    const isRoom = c.mode !== "solo";
+    const isPaid = c.step === "paid";
     return (
       <div className="mx-auto max-w-2xl">
         <motion.div
@@ -131,69 +184,94 @@ export default function CreateDare() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
         >
-          <HudPanel label={isRoom ? "Room opened" : "Dare staged"} icon={<Check className="size-3.5" />} badge={isRoom ? "LOBBY" : "PENDING / FUNDING"}>
+          <HudPanel
+            label={isRoom ? "Room opened" : isPaid ? "Dare live" : "Dare staged"}
+            icon={<Check className="size-3.5" />}
+            badge={isPaid ? "LIVE / ON-CHAIN" : isRoom ? "LOBBY" : "PENDING / FUNDING"}
+          >
             <div className="flex flex-col gap-6">
-              {isRoom ? (
-                <div className="flex flex-col gap-4">
-                  <div className="flex items-start gap-3 rounded-2xl border border-primary/30 bg-primary/5 px-5 py-4">
-                    <CircleAlert className="mt-0.5 size-5 shrink-0 text-primary" />
-                    <p className="text-sm leading-relaxed text-foreground">
-                      Your {state.mode} room is open in the lobby. Every participant funds{" "}
-                      <span className="font-mono text-primary">
-                        {state.amount} {state.asset}
-                      </span>{" "}
-                      into escrow as they join, tagged by a per-seat memo so the ledger credits
-                      the right chair. The room plays once every seat is funded or the deadline
-                      passes.
-                    </p>
-                  </div>
-                  {state.mode === "team" && state.roomCode && (
-                    <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-muted/20 px-4 py-3">
-                      <p className="flex-1 font-mono text-3xl font-semibold tracking-[0.3em] text-primary">
-                        {state.roomCode}
-                      </p>
-                      <Button href={`/app/dare/${state.dareId}`}>
-                        Enter lobby <ArrowRight className="size-4" />
-                      </Button>
-                    </div>
-                  )}
-                  <p className="font-mono text-[11px] text-muted-foreground">
-                    &gt; {state.mode === "team" ? `share the room code or the dashboard link with up to ${state.maxCapacity - 1} more people` : `public table · up to ${state.maxCapacity} players`}
+              {isPaid ? (
+                <div className="flex items-start gap-3 rounded-2xl border border-primary/30 bg-primary/5 px-5 py-4">
+                  <Check className="mt-0.5 size-5 shrink-0 text-primary" />
+                  <p className="text-sm leading-relaxed text-foreground">
+                    {isRoom
+                      ? `Your seat is locked. Your ${c.amount} ${c.asset} is on-chain in escrow. The room plays once every seat is funded or the deadline passes.`
+                      : `Your ${c.amount} ${c.asset} stake is on-chain in escrow and the dare is live. Keep the evidence handy - you submit the proof before the deadline.`}
                   </p>
                 </div>
               ) : (
                 <div className="flex flex-col gap-4">
-                  <div className="flex items-center gap-3 rounded-2xl border border-primary/30 bg-primary/5 px-5 py-4">
-                    <CircleAlert className="size-5 text-primary" />
+                  <div className="flex items-start gap-3 rounded-2xl border border-amber-400/30 bg-amber-400/5 px-5 py-4">
+                    <Wallet className="mt-0.5 size-5 shrink-0 text-amber-300" />
                     <p className="text-sm leading-relaxed text-foreground">
-                      Stake is not yet on-chain. Send{" "}
-                      <span className="font-mono text-primary">{state.amount} {state.asset}</span> to the escrow
-                      address below. The dare is placed on the ledger the instant the sweep sees the
-                      deposit.
+                      {c.step === "funding"
+                        ? `Confirm the ${c.amount} ${c.asset} payment in the Nimiq Pay sheet. The dare only goes live once the deposit is seen on-chain.`
+                        : `Your dare is staged but not funded yet. Confirm ${c.amount} ${c.asset} in Nimiq Pay to lock the stake into escrow.`}
                     </p>
                   </div>
-                  <div className="border-t border-border pt-4">
-                    <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-                      Escrow address ({state.asset === "NIM" ? "Nimiq network" : "Polygon network"})
+                  {c.error && (
+                    <p className="font-mono text-[11px] text-red-400">ERR: {c.error}</p>
+                  )}
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Button
+                      onClick={() => {
+                        const retryMessage = `nimdares:fund:${Date.now()}:${c.dareId}`;
+                        void wallet.signMessage(retryMessage).then((retrySig) => {
+                          if (!retrySig) {
+                            setState({ ...c, step: "failed", error: "wallet signature failed or was rejected" });
+                            return;
+                          }
+                          const retryAuth = `Nimiq ${retrySig.publicKey}:${retrySig.signature}:${base64UrlEncode(retryMessage)}`;
+                          void stakeAndFund(c, retryAuth);
+                        });
+                      }}
+                      disabled={c.step === "funding" || !c.escrowAddress || !c.escrowConfigured}
+                    >
+                      <Wallet className="size-4" />
+                      {c.step === "funding"
+                        ? "Waiting for Pay…"
+                        : `Confirm ${c.amount} ${c.asset} in Pay`}
+                      <ArrowRight className="size-4" />
+                    </Button>
+                    <p className="font-mono text-[11px] text-muted-foreground">
+                      &gt; signed by your Nimiq identity; escrow: {c.escrowConfigured ? "hot" : "unconfigured"}
                     </p>
-                    {state.escrowConfigured ? (
-                      <p className="mt-3 break-all font-mono text-sm text-foreground">
-                        {state.escrowAddress}
-                      </p>
-                    ) : (
-                      <p className="mt-3 font-mono text-sm text-red-400">
-                        UNAVAILABLE - escrow key not configured on this deployment
-                      </p>
-                    )}
                   </div>
+                  {c.escrowConfigured && c.escrowAddress && (
+                    <div className="border-t border-border pt-4">
+                      <button
+                        type="button"
+                        className="flex w-full items-start gap-2 rounded-lg px-1 py-0.5 text-left hover:bg-muted/20"
+                        onClick={() => void navigator.clipboard?.writeText(c.escrowAddress!).catch(() => {})}
+                      >
+                        <Copy className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+                        <span className="flex flex-col gap-1">
+                          <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                            Escrow address (tap to copy · manual fallback)
+                          </span>
+                          <span className="break-all font-mono text-xs text-foreground/80">
+                            {c.escrowAddress}
+                          </span>
+                        </span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+              {isRoom && c.roomCode && (
+                <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-muted/20 px-4 py-3">
+                  <p className="flex-1 font-mono text-3xl font-semibold tracking-[0.3em] text-primary">
+                    {c.roomCode}
+                  </p>
+                  <Button href={`/app/dare/${c.dareId}`}>
+                    Enter lobby <ArrowRight className="size-4" />
+                  </Button>
                 </div>
               )}
               <div className="flex flex-wrap gap-3">
-                {state.mode === "team" && (
-                  <Button href={`/app/dare/${state.dareId}`}>
-                    Open lobby <ArrowRight className="size-4" />
-                  </Button>
-                )}
+                <Button href={`/app/dare/${c.dareId}`}>
+                  {isPaid ? "Open the dare" : "Open in lobby"} <ArrowRight className="size-4" />
+                </Button>
                 <Button href="/app">
                   <ArrowLeft className="size-4" /> Back to console
                 </Button>
@@ -306,7 +384,7 @@ export default function CreateDare() {
               </Field>
             )}
             <p className="font-mono text-[11px] text-muted-foreground">
-              &gt; {mode === "solo" && "solo dares are private to you and fund from your own wallet"}
+              &gt; {mode === "solo" && "solo dares are private to you and fund straight from your wallet via Nimiq Pay"}
               {mode === "team" && "team rooms are private; each member joins with the invite code"}
               {mode === "arena" && "arena rooms are public and appear in the arena feed for anyone to join"}
             </p>
@@ -332,6 +410,9 @@ export default function CreateDare() {
                   {a}
                 </button>
               ))}
+              {asset === "USDT" && (
+                <span className="font-mono text-[10px] text-amber-300/80">manual funding only</span>
+              )}
             </div>
             <div className="grid gap-5 md:grid-cols-2">
               <Field label={`Amount (${asset})`}>
@@ -418,13 +499,13 @@ export default function CreateDare() {
         className="flex flex-wrap items-center justify-between gap-4"
       >
         <div className="flex items-center gap-3">
-          <StatusPill label={disabled ? "NO WALLET" : "SIGN+POST"} tone={disabled ? "neutral" : wallet.status === "signing" || state.phase === "signing" ? "live" : "neutral"} live={!disabled} />
+          <StatusPill label={disabled ? "NO WALLET" : "SIGN + PAY"} tone={disabled ? "neutral" : wallet.status === "signing" || state.phase === "signing" ? "live" : "neutral"} live={!disabled} />
           <p className="font-mono text-[11px] text-muted-foreground">
-            {wallet.status === "signing" ? "host signing…" : "signed by your Nimiq identity"}
+            {wallet.status === "signing" ? "host signing…" : "sign · stake · locked on-chain"}
           </p>
         </div>
         <Button onClick={handleCreate} disabled={disabled || state.phase === "signing" || state.phase === "submitting"}>
-          {state.phase === "signing" || state.phase === "submitting" ? "Signing…" : "Sign & create"}
+          {state.phase === "signing" || state.phase === "submitting" ? "Signing…" : `Stake ${amount} ${asset} & create`}
           <ArrowRight className="size-4" />
         </Button>
       </motion.div>
