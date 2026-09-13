@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
 
   let credited = 0;
   if (asset === "NIM") {
-    let txs = [];
+    let txs: Awaited<ReturnType<typeof fetchNimIncomingTxs>> = [];
     try {
       txs = await fetchNimIncomingTxs(address);
     } catch (e) {
