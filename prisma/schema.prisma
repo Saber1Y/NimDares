@@ -14,9 +14,11 @@ enum Asset {
 
 enum DareStatus {
   PENDING_FUNDING
+  LOBBY
   ACTIVE
   SUBMITTED
   ADJUDICATED
+  SETTLED
   WON
   LOST
   SWEEPING
@@ -79,6 +81,9 @@ model Dare {
   criteria       String
   asset          Asset
   amountRaw      BigInt
+  maxCapacity    Int           @default(1)
+  isPrivate      Boolean       @default(true)
+  roomCode       String?
   deadline       DateTime
   status         DareStatus    @default(PENDING_FUNDING)
   verifierKind   VerifierKind
@@ -92,11 +97,35 @@ model Dare {
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
+  participants  Participant[]
   transactions TxRecord[]
 
   @@index([ownerId])
   @@index([status])
+  @@index([isPrivate, status])
   @@index([createdAt])
+}
+
+model Participant {
+  id              String        @id @default(cuid())
+  dareId          String
+  userAddress     String
+  stakeRaw        BigInt
+  fundingTxHash   String?
+  fundedAt        DateTime?
+  proofImageUrl   String?
+  aiVerdict       VerifierState @default(WAITING)
+  verdictReason   String?
+  payoutAmountRaw BigInt        @default(0)
+  payoutTxHash    String?
+  payoutStatus    PayoutStatus?
+  joinedAt        DateTime      @default(now())
+
+  dare            Dare          @relation(fields: [dareId], references: [id])
+
+  @@unique([dareId, userAddress])
+  @@index([dareId])
+  @@index([userAddress])
 }
 
 model TxRecord {
