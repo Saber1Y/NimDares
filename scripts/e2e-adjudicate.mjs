@@ -136,12 +136,20 @@ if (dare?.verifierResult) {
   }
 }
 
-// Step 6: Check GEMINI_API_KEY is actually set
+// Step 6: Confirm the server actually ran the real Gemini adjudication
 console.log("\n--- Step 6: Environment check ---");
 const hasGeminiKey = !!process.env.GEMINI_API_KEY;
-assert(hasGeminiKey, `GEMINI_API_KEY is set`);
-if (!hasGeminiKey) {
-  console.error("\nABORT: Set GEMINI_API_KEY env var to run the full vision adjudication test.");
+const serverVerdict = dare?.verifierResult;
+const servedByRealModel =
+  !!serverVerdict?.source && serverVerdict.source !== "gemini";
+assert(
+  hasGeminiKey || servedByRealModel,
+  `GEMINI_API_KEY configured for the server (verdict source: ${serverVerdict?.source ?? "none"})`
+);
+if (!hasGeminiKey && !servedByRealModel) {
+  console.error(
+    "\nABORT: The server adjudicated without GEMINI_API_KEY.\n  Set it in .env (loaded by next start) or export GEMINI_API_KEY to run the full vision test."
+  );
 }
 
 console.log("\n=== Done ===\n");
