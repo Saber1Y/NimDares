@@ -75,7 +75,13 @@ assert(r.status === 201 && r.body?.ok === true, `create dare succeeds (${r.statu
 const dareId = r.body?.dare?.id;
 assert(typeof dareId === "string" && dareId.length > 0, `dare id present`);
 assert(r.body?.dare?.status === "PENDING_FUNDING", `new dare starts PENDING_FUNDING`);
-assert(r.body?.escrow?.configured === false, `escrow honestly reports unconfigured without keys`);
+import { readFileSync, existsSync } from "node:fs";
+const dotenv = existsSync(".env") ? readFileSync(".env", "utf8") : "";
+const escrowExpected = /^ESCROW_NIM_KEY_HEX=./m.test(dotenv);
+assert(
+  r.body?.escrow?.configured === escrowExpected,
+  `escrow reports honest config state (configured=${r.body?.escrow?.configured})`
+);
 
 // 4. Reject unauthenticated create
 r = await json(`${BASE}/api/dares`, {
