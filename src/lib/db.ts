@@ -60,6 +60,7 @@ export interface ParticipantRecord {
   fundingTxHash: string | null;
   fundedAt: Date | null;
   proofImageUrl: string | null;
+  proofLink: string | null;
   aiVerdict: "VALID" | "INVALID" | "UNAVAILABLE" | "WAITING";
   verdictReason: string | null;
   payoutAmountRaw: bigint;
@@ -222,6 +223,7 @@ function fromPrismaParticipant(p: {
   fundingTxHash: string | null;
   fundedAt: Date | null;
   proofImageUrl: string | null;
+  proofLink: string | null;
   aiVerdict: "VALID" | "INVALID" | "UNAVAILABLE" | "WAITING";
   verdictReason: string | null;
   payoutAmountRaw: bigint;
@@ -237,6 +239,7 @@ function fromPrismaParticipant(p: {
     fundingTxHash: p.fundingTxHash,
     fundedAt: p.fundedAt,
     proofImageUrl: p.proofImageUrl,
+    proofLink: p.proofLink,
     aiVerdict: p.aiVerdict,
     verdictReason: p.verdictReason,
     payoutAmountRaw: p.payoutAmountRaw,
@@ -380,6 +383,7 @@ class PrismaLedgerStore implements LedgerStore {
     if (patch.fundingTxHash !== undefined) data.fundingTxHash = patch.fundingTxHash;
     if (patch.fundedAt !== undefined) data.fundedAt = patch.fundedAt;
     if (patch.proofImageUrl !== undefined) data.proofImageUrl = patch.proofImageUrl;
+    if (patch.proofLink !== undefined) data.proofLink = patch.proofLink;
     if (patch.aiVerdict !== undefined) data.aiVerdict = patch.aiVerdict;
     if (patch.verdictReason !== undefined) data.verdictReason = patch.verdictReason;
     if (patch.payoutAmountRaw !== undefined) data.payoutAmountRaw = patch.payoutAmountRaw;
@@ -584,6 +588,7 @@ class MemoryLedgerStore implements LedgerStore {
       fundingTxHash: null,
       fundedAt: null,
       proofImageUrl: null,
+      proofLink: null,
       aiVerdict: "WAITING",
       verdictReason: null,
       payoutAmountRaw: 0n,

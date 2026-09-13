@@ -115,6 +115,7 @@ model Participant {
   fundingTxHash   String?
   fundedAt        DateTime?
   proofImageUrl   String?
+  proofLink       String?
   aiVerdict       VerifierState @default(WAITING)
   verdictReason   String?
   payoutAmountRaw BigInt        @default(0)

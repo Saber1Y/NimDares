@@ -63,6 +63,8 @@ export interface Participant {
   userAddress: string;
   funded: boolean;
   fundingTxHash: string | null;
+  proofImageUrl?: string | null;
+  proofLink?: string | null;
   aiVerdict: "VALID" | "INVALID" | "WAITING" | "UNAVAILABLE";
   verdictReason: string | null;
   joinedAt: string;

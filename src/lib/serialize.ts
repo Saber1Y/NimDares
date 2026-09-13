@@ -45,6 +45,8 @@ export function participantToClient(p: ParticipantRecord) {
     userAddress: p.userAddress,
     funded: p.fundedAt !== null,
     fundingTxHash: p.fundingTxHash,
+    proofImageUrl: p.proofImageUrl,
+    proofLink: p.proofLink,
     aiVerdict: p.aiVerdict,
     verdictReason: p.verdictReason,
     joinedAt: p.joinedAt.toISOString(),
