@@ -91,7 +91,7 @@ export default function Landing() {
               <TerminalBlock title="escrow_engine.log">
                 {[
                   { kind: "SYS" as const, text: "ESCROW_OPEN 10 NIM staked on \u201cShip v0 by Friday\u201d." },
-                  { kind: "EVENT" as const, text: "PROOF_INTAKE screenshot 2026-09-12_14:02 \u2192 gemini-2.5-flash" },
+                  { kind: "EVENT" as const, text: "PROOF_INTAKE screenshot 2026-09-12_14:02 \u2192 gemini-3.6-flash" },
                   { kind: "AGENT" as const, text: "ADJUDICATE matches criteria: streak counter, build output, date." },
                   { kind: "OK" as const, text: "VALID \u2192 payout scheduled. 10.00 NIM \u2192 user wallet." },
                   { kind: "EVENT" as const, text: "SETTLE escrow signed & broadcast. Hash 0x9f3a\u2026e21" },

@@ -16,7 +16,7 @@ NimDares is a decentralized commitment escrow mini-app built for **Nimiq Pay** (
 - **Data Layer:** Prisma 7 with PostgreSQL (`@prisma/adapter-pg` + `pg`) and an in-memory fallback ledger store (`src/lib/db.ts`).
 - **Nimiq Web3:** `@nimiq/core` (Node.js build) for server-side address derivation, verification, and basic transaction building; `@nimiq/mini-app-sdk` for client wallet connection, signing (`provider.sign`), and staking (`provider.sendBasicTransaction`).
 - **EVM Integration:** Ethers v6 for Polygon mainnet/Amoy testnet USDT escrow and payouts.
-- **AI & Verifiers:** Gemini 2.5 Flash via `@google/genai` for structured vision adjudication, GitHub commits/PRs, and Strava activity fetching (`src/lib/vision.ts`, `github.ts`, `strava.ts`).
+- **AI & Verifiers:** Gemini 3.6 Flash via `@google/genai` for structured vision adjudication (override model via `GEMINI_MODEL`; default `gemini-3.6-flash`), GitHub commits/PRs, and Strava activity fetching (`src/lib/vision.ts`, `github.ts`, `strava.ts`).
 
 ---
 

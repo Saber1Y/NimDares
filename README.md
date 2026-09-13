@@ -86,7 +86,7 @@ src/
 
 ## Verifier Types
 
-- **VISION** - AI reads a screenshot against the acceptance criteria using Gemini 2.5 Flash.
+- **VISION** - AI reads a screenshot against the acceptance criteria using Gemini 3.6 Flash.
 - **GITHUB** - Checks public GitHub events API for activity since dare creation.
 - **STRAVA** - Validates a Strava activity URL against the dare timeline.
 

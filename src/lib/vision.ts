@@ -9,7 +9,7 @@ export interface VisionVerdict {
   source: string;
 }
 
-const VISION_MODEL = process.env.GEMINI_MODEL ?? "gemini-2.5-flash";
+const VISION_MODEL = process.env.GEMINI_MODEL ?? "gemini-3.6-flash";
 
 const JUDGE_PROMPT = `You are an impartial proof adjudicator on a goal-commitment platform.
 A user staked funds on the following commitment and submitted a screenshot as proof of completion.
