@@ -28,6 +28,11 @@ interface WalletState {
   signMessage: (
     message: string
   ) => Promise<SignatureResult | null>;
+  sendPayTransaction: (
+    recipient: string,
+    valueLuna: number,
+    memo: string
+  ) => Promise<{ ok: boolean; error?: string }>;
   connect: () => Promise<void>;
 }
 
@@ -95,6 +100,41 @@ export function NimiqWalletProvider({ children }: { children: ReactNode }) {
     [provider]
   );
 
+  const sendPayTransaction = useCallback(
+    async (
+      recipient: string,
+      valueLuna: number,
+      memo: string
+    ): Promise<{ ok: boolean; error?: string }> => {
+      if (!provider) return { ok: false, error: "wallet not connected" };
+      setStatus("signing");
+      try {
+        const bytes = new TextEncoder().encode(memo);
+        const dataHex = Array.from(bytes)
+          .map((b) => b.toString(16).padStart(2, "0"))
+          .join("");
+        const res = await provider.sendBasicTransactionWithData({
+          recipient,
+          value: valueLuna,
+          data: dataHex,
+        });
+        if (isErrorResponse(res)) {
+          setError(res.error.message);
+          return { ok: false, error: res.error.message };
+        }
+        setError(null);
+        return { ok: true };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        setError(msg);
+        return { ok: false, error: msg };
+      } finally {
+        setStatus((s) => (s === "signing" ? "ready" : s));
+      }
+    },
+    [provider]
+  );
+
   const value = useMemo<WalletState>(
     () => ({
       status,
@@ -104,9 +144,10 @@ export function NimiqWalletProvider({ children }: { children: ReactNode }) {
       network,
       error,
       signMessage,
+      sendPayTransaction,
       connect,
     }),
-    [status, provider, accounts, network, error, signMessage, connect]
+    [status, provider, accounts, network, error, signMessage, sendPayTransaction, connect]
   );
 
   return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;
