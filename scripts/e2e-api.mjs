@@ -27,11 +27,17 @@ async function json(url, opts) {
   return { status: res.status, body };
 }
 
+const MSG_PREFIX = "\x16Nimiq Signed Message:\n";
+const signFor = (sk) => (msg) => {
+  const data = `${MSG_PREFIX}${msg.length}${msg}`;
+  const digest = sha256(new TextEncoder().encode(data));
+  return sk.sign(digest).toHex();
+};
+
 const kp = KeyPair.generate();
 const publicKey = kp.publicKey.toHex();
 const message = `nimdares-login:${Date.now()}`;
-const digest = sha256(new TextEncoder().encode(message));
-const signature = kp.sign(digest).toHex();
+const signature = signFor(kp)(message);
 const authHeader = `Nimiq ${publicKey}:${signature}:${Buffer.from(message).toString("base64url")}`;
 
 // 1. Auth verify
@@ -144,14 +150,12 @@ const roomDeadline = new Date(Date.now() + 48 * 3600_000).toISOString();
 const bob = KeyPair.generate();
 const bobPub = bob.publicKey.toHex();
 const bobMsg = `nimdares-login:${Date.now()}`;
-const bobDigest = sha256(new TextEncoder().encode(bobMsg));
-const bobSig = bob.sign(bobDigest).toHex();
+const bobSig = signFor(bob)(bobMsg);
 const bobAuth = `Nimiq ${bobPub}:${bobSig}:${Buffer.from(bobMsg).toString("base64url")}`;
 const charlie = KeyPair.generate();
 const charliePub = charlie.publicKey.toHex();
 const charlieMsg = `nimdares-login:${Date.now()}`;
-const charlieDigest = sha256(new TextEncoder().encode(charlieMsg));
-const charlieSig = charlie.sign(charlieDigest).toHex();
+const charlieSig = signFor(charlie)(charlieMsg);
 const charlieAuth = `Nimiq ${charliePub}:${charlieSig}:${Buffer.from(charlieMsg).toString("base64url")}`;
 
 // 11. Create team room with explicit capacity

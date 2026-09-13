@@ -29,11 +29,13 @@ async function json(url, opts) {
   return { status: res.status, body };
 }
 
+const MSG_PREFIX = "\x16Nimiq Signed Message:\n";
+
 function makeAuth() {
   const kp = KeyPair.generate();
   const publicKey = kp.publicKey.toHex();
   const message = `nimdares-login:${Date.now()}`;
-  const digest = sha256(new TextEncoder().encode(message));
+  const digest = sha256(new TextEncoder().encode(`${MSG_PREFIX}${message.length}${message}`));
   const signature = kp.sign(digest).toHex();
   const auth = `Nimiq ${publicKey}:${signature}:${Buffer.from(message).toString("base64url")}`;
   return { auth, address: kp.toAddress().toUserFriendlyAddress() };
