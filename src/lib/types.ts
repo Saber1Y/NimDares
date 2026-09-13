@@ -9,7 +9,8 @@ export type DareStatus =
   | "SETTLED"
   | "WON"
   | "LOST"
-  | "SWEEPING";
+  | "SWEEPING"
+  | "VOIDED";
 
 export type VerifierKind = "VISION" | "GITHUB" | "STRAVA";
 

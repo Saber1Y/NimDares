@@ -76,7 +76,19 @@ export async function POST(req: NextRequest) {
   stats.scanned = dares.length;
 
   for (const dare of dares) {
-    if (dare.status !== "ACTIVE" && dare.status !== "SUBMITTED") continue;
+    const isFundedPreState = dare.status === "ACTIVE" || dare.status === "SUBMITTED";
+    if (!isFundedPreState) {
+      // Unfunded (Solo: PENDING_FUNDING, Room: LOBBY) dares expire as VOIDED once the deadline passes.
+      const wasPendingFunding = dare.status === "PENDING_FUNDING" || dare.status === "LOBBY";
+      if (wasPendingFunding && new Date(dare.deadline).getTime() <= now) {
+        await store.updateDare(dare.id, {
+          status: "VOIDED",
+          verifierResult: { status: "INVALID", reason: "never funded before deadline" },
+        });
+        stats.expired += 1;
+      }
+      continue;
+    }
     if (new Date(dare.deadline).getTime() > now) continue;
     stats.expired += 1;
 
