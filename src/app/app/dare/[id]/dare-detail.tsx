@@ -13,12 +13,15 @@ import {
   ScanLine,
   Swords,
   Hourglass,
+  Users,
+  KeyRound,
+  Coins,
 } from "lucide-react";
 import { useNimiqWallet, isErrorResponse } from "@/components/nimiq-provider";
 import { HudPanel } from "@/components/ui/hud-panel";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Button } from "@/components/ui/button";
-import type { Dare } from "@/lib/types";
+import type { Dare, Participant } from "@/lib/types";
 
 type SubmitState =
   | { phase: "idle"; error: string | null }
@@ -48,16 +51,29 @@ function base64UrlEncode(s: string): string {
   return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
+function memoHex(memo: string): string {
+  return Array.from(new TextEncoder().encode(memo))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function shortAddr(a: string): string {
+  return `${a.slice(0, 6)}…${a.slice(-4)}`;
+}
+
 export default function DareDetail({ id, initial }: { id: string; initial: Dare | null }) {
   const wallet = useNimiqWallet();
   const [dare, setDare] = useState<Dare | null>(initial);
+  const [participants, setParticipants] = useState<Participant[]>([]);
   const [missing, setMissing] = useState(false);
   const [proofLink, setProofLink] = useState("");
   const [submit, setSubmit] = useState<SubmitState>({ phase: "idle", error: null });
   const [copied, setCopied] = useState(false);
+  const [codeCopied, setCodeCopied] = useState(false);
   const [funding, setFunding] = useState<{ phase: "idle" } | { phase: "sending"; serialized: string | null }>(
     { phase: "idle" }
   );
+  const [joining, setJoining] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -74,6 +90,7 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
         if (!res.ok) return;
         const data = await res.json();
         if (data.dare) setDare(data.dare);
+        if (Array.isArray(data.participants)) setParticipants(data.participants);
       } catch {
         /* keep last known state */
       }
@@ -85,21 +102,22 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
 
   useEffect(() => {
     if (!dare) return;
-    const timer = setInterval(async () => {
+    const load = async () => {
       try {
         const res = await fetch(`/api/dares/${dare.id}`, { cache: "no-store" });
         if (!res.ok) return;
         const data = await res.json();
         if (data.dare) {
           const next = data.dare as Dare;
-          setDare((prev) =>
-            prev && JSON.stringify(prev) === JSON.stringify(next) ? prev : next
-          );
+          setDare((prev) => (prev && JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
         }
+        if (Array.isArray(data.participants)) setParticipants(data.participants);
       } catch {
         /* keep last known state */
       }
-    }, 6000);
+    };
+    void load();
+    const timer = setInterval(load, 6000);
     return () => clearInterval(timer);
   }, [dare]);
 
@@ -132,13 +150,22 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
   }
 
   const cur = dare;
+  const isRoom = cur.maxCapacity > 1;
+  const mySeat = isRoom ? participants.find((p) => p.userAddress === wallet.address) ?? null : null;
+  const roomOpen = cur.status === "LOBBY" || cur.status === "ACTIVE";
+  const canJoin =
+    isRoom &&
+    roomOpen &&
+    !mySeat &&
+    participants.length < cur.maxCapacity &&
+    new Date(cur.deadline).getTime() > Date.now();
 
   const tone =
     cur.status === "WON"
       ? "success"
       : cur.status === "LOST"
         ? "failed"
-        : cur.status === "ACTIVE" || cur.status === "PENDING_FUNDING"
+        : cur.status === "ACTIVE" || cur.status === "PENDING_FUNDING" || cur.status === "LOBBY"
           ? "live"
           : "neutral";
 
@@ -150,6 +177,7 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
       setFunding({ phase: "idle" });
       return;
     }
+    if (isRoom && !mySeat) return;
     if (!wallet.provider || wallet.status !== "ready") {
       setFunding({ phase: "idle" });
       return;
@@ -159,12 +187,21 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
       const valueLuna = Math.round(cur.amount * 100_000);
       const feeLuna = Math.round(valueLuna / 1000) + 100;
       const height = await wallet.provider.getBlockNumber();
-      const result = await wallet.provider.sendBasicTransaction({
-        recipient: recip,
-        value: valueLuna,
-        fee: feeLuna,
-        validityStartHeight: height,
-      });
+      const result =
+        isRoom && mySeat
+          ? await wallet.provider.sendBasicTransactionWithData({
+              recipient: recip,
+              value: valueLuna,
+              fee: feeLuna,
+              data: memoHex(`nimdares:${cur.id}:${mySeat.id}`),
+              validityStartHeight: height,
+            })
+          : await wallet.provider.sendBasicTransaction({
+              recipient: recip,
+              value: valueLuna,
+              fee: feeLuna,
+              validityStartHeight: height,
+            });
       if (isErrorResponse(result)) {
         setFunding({ phase: "idle" });
         setSubmit({ phase: "idle", error: `funding rejected: ${result.error.message}` });
@@ -173,6 +210,43 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
       setFunding({ phase: "sending", serialized: typeof result === "string" ? result : null });
     } catch (e) {
       setFunding({ phase: "idle" });
+      setSubmit({ phase: "idle", error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+
+  async function joinRoom() {
+    if (!wallet.address || wallet.status !== "ready") {
+      setSubmit({ phase: "idle", error: "wallet not connected; cannot sign the room join" });
+      return;
+    }
+    const message = `nimdares:join:${cur.id}:${Date.now()}`;
+    setJoining(true);
+    const sig = await wallet.signMessage(message);
+    if (!sig) {
+      setJoining(false);
+      setSubmit({ phase: "idle", error: "wallet signature failed or was rejected" });
+      return;
+    }
+    const authHeader = `Nimiq ${sig.publicKey}:${sig.signature}:${base64UrlEncode(message)}`;
+    try {
+      const res = await fetch(`/api/dares/${cur.id}/join`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: authHeader },
+        body: JSON.stringify({ roomCode: cur.roomCode ?? undefined }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        setJoining(false);
+        setSubmit({ phase: "idle", error: data?.error ?? `HTTP ${res.status}` });
+        return;
+      }
+      setJoining(false);
+      setSubmit({ phase: "done", message: "seat reserved - fund it to take the chair" });
+      const refresh = await fetch(`/api/dares/${cur.id}`, { cache: "no-store" });
+      const rd = await refresh.json();
+      if (Array.isArray(rd.participants)) setParticipants(rd.participants);
+    } catch (e) {
+      setJoining(false);
       setSubmit({ phase: "idle", error: e instanceof Error ? e.message : String(e) });
     }
   }
@@ -222,6 +296,53 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
     }
   }
 
+  async function submitSeatProof(image?: string) {
+    if (!mySeat) return;
+    if (!wallet.address || wallet.status !== "ready") {
+      setSubmit({ phase: "idle", error: "wallet not connected; cannot sign the proof" });
+      return;
+    }
+    const isVision = cur.verifierKind === "VISION";
+    if (isVision && !image) {
+      setSubmit({ phase: "idle", error: "capture a screenshot first" });
+      return;
+    }
+    if (!isVision && !proofLink.trim()) {
+      setSubmit({ phase: "idle", error: "provide the verifier link first" });
+      return;
+    }
+
+    const message = `nimdares:seatproof:${cur.id}:${mySeat.id}:${Date.now()}`;
+    setSubmit({ phase: "signing" });
+    const sig = await wallet.signMessage(message);
+    if (!sig) {
+      setSubmit({ phase: "idle", error: "wallet signature failed or was rejected" });
+      return;
+    }
+
+    setSubmit({ phase: "submitting" });
+    const authHeader = `Nimiq ${sig.publicKey}:${sig.signature}:${base64UrlEncode(message)}`;
+    try {
+      const body = isVision && image ? { proofImage: image } : { proofLink: proofLink.trim() };
+      const res = await fetch(`/api/dares/${cur.id}/seats/${mySeat.id}/proof`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: authHeader },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        setSubmit({ phase: "idle", error: data?.error ?? `HTTP ${res.status}` });
+        return;
+      }
+      setSubmit({ phase: "done", message: data.message ?? "proof submitted" });
+      const refresh = await fetch(`/api/dares/${cur.id}`, { cache: "no-store" });
+      const rd = await refresh.json();
+      if (Array.isArray(rd.participants)) setParticipants(rd.participants);
+    } catch (e) {
+      setSubmit({ phase: "idle", error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+
   function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -234,15 +355,18 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
         return;
       }
       setSubmit({ phase: "idle", error: null });
-      void submitProof(dataUrl);
+      void submitSeatProof(dataUrl);
     };
     reader.onerror = () => setSubmit({ phase: "idle", error: "could not read image" });
     reader.readAsDataURL(file);
   }
 
   const escrowShown =
-    cur.status === "PENDING_FUNDING" &&
-    (cur.ownerAddress === wallet.address || wallet.status !== "ready");
+    cur.status === "PENDING_FUNDING" && (cur.ownerAddress === wallet.address || wallet.status !== "ready");
+  const seatNeedsFunds = mySeat && !mySeat.funded && roomOpen && cur.escrow;
+
+  const seatTone = (p: Participant) =>
+    p.aiVerdict === "VALID" ? "success" : p.aiVerdict === "INVALID" ? "failed" : p.funded ? "live" : "neutral";
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-8">
@@ -259,6 +383,7 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
             /operator-console/dare/{cur.id.slice(0, 8)}
           </p>
           <StatusPill label={cur.status} tone={tone} live={tone === "live"} />
+          {isRoom && <StatusPill label={cur.isPrivate ? "TEAM ROOM" : "ARENA ROOM"} tone="neutral" />}
         </div>
         <h1 className="mt-3 text-4xl font-semibold tracking-[-0.05em] md:text-5xl">
           {cur.title}
@@ -277,24 +402,129 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
             <Stat label="Stake" value={`${formatAmount(cur.amount)} ${cur.asset}`} mono />
             <Stat label="Deadline" value={formatDeadline(cur.deadline)} mono />
             <Stat label="Verifier" value={cur.verifierKind} mono />
-            <Stat label="Owner" value={`${cur.ownerAddress.slice(0, 6)}…${cur.ownerAddress.slice(-4)}`} mono />
+            <Stat
+              label={isRoom ? "Room" : "Owner"}
+              value={isRoom ? `${participants.length} / ${cur.maxCapacity} seated` : shortAddr(cur.ownerAddress)}
+              mono
+            />
           </div>
         </HudPanel>
       </motion.div>
 
+      {/* lobby */}
+      {isRoom && (
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+        >
+          <HudPanel
+            label="Lobby"
+            icon={<Users className="size-3.5" />}
+            badge={`${participants.length}/${cur.maxCapacity}`}
+          >
+            <div className="flex flex-col gap-3">
+              {cur.roomCode && cur.isPrivate && (
+                <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-muted/20 px-4 py-3">
+                  <KeyRound className="size-4 text-muted-foreground" />
+                  <p className="flex-1 font-mono text-2xl font-semibold tracking-[0.3em] text-primary">
+                    {cur.roomCode}
+                  </p>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(cur.roomCode ?? "").catch(() => {});
+                      setCodeCopied(true);
+                      setTimeout(() => setCodeCopied(false), 1500);
+                    }}
+                    className="text-muted-foreground transition-colors hover:text-primary"
+                  >
+                    <Copy className="size-4" />
+                  </button>
+                  {codeCopied && <StatusPill label="COPIED" tone="live" live />}
+                </div>
+              )}
+              <div className="flex flex-col divide-y divide-border">
+                {participants.map((p) => (
+                  <div
+                    key={p.id}
+                    className="flex items-center justify-between gap-3 py-3"
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-border bg-muted/30 font-mono text-[10px] text-primary">
+                        {p.userAddress.slice(-2).toUpperCase()}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="truncate font-mono text-sm text-foreground">
+                          {p.userAddress === wallet.address ? `${shortAddr(p.userAddress)} (you)` : shortAddr(p.userAddress)}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground">
+                          {p.funded ? `funded · memo credited` : "seat reserved · awaiting funding"}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      {p.aiVerdict !== "WAITING" && (
+                        <StatusPill label={p.aiVerdict} tone={p.aiVerdict === "VALID" ? "success" : "failed"} />
+                      )}
+                      <StatusPill
+                        label={p.funded ? "FUNDED" : p.proofImageUrl || p.proofLink ? "PROOF IN" : "UNFUNDED"}
+                        tone={seatTone(p)}
+                      />
+                    </div>
+                  </div>
+                ))}
+                {participants.length === 0 && (
+                  <p className="py-4 font-mono text-sm text-muted-foreground">&gt; lobby empty</p>
+                )}
+              </div>
+              {canJoin && (
+                <div className="border-t border-border pt-4">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Button onClick={() => void joinRoom()} disabled={joining || wallet.status !== "ready"}>
+                      {joining ? "Signing…" : "Join room"}
+                      <Users className="size-4" />
+                    </Button>
+                    <p className="font-mono text-[11px] text-muted-foreground">
+                      &gt; stake {formatAmount(cur.amount)} {cur.asset} into your chair once you join
+                    </p>
+                  </div>
+                  {submit.phase === "idle" && submit.error && (
+                    <p className="mt-3 font-mono text-[11px] text-red-400">ERR: {submit.error}</p>
+                  )}
+                  {submit.phase === "done" && submit.message.startsWith("seat reserved") && (
+                    <p className="mt-3 font-mono text-[11px] text-primary">OK: {submit.message}</p>
+                  )}
+                </div>
+              )}
+            </div>
+          </HudPanel>
+        </motion.div>
+      )}
+
       {/* escrow deposit guidance */}
-      {escrowShown && (
+      {(escrowShown || (isRoom && seatNeedsFunds)) && (
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
         >
-          <HudPanel label="Funding" icon={<CircleAlert className="size-3.5" />} badge="PENDING">
+          <HudPanel label="Funding" icon={<Coins className="size-3.5" />} badge="PENDING">
             <div className="flex flex-col gap-4">
               <p className="text-sm leading-relaxed text-muted-foreground">
-                Send <span className="font-mono text-primary">{formatAmount(cur.amount)} {cur.asset}</span> to
-                the escrow address. The sweep places the dare once the deposit is observed
-                on-chain.
+                {isRoom ? (
+                  <>
+                    Fund your seat with{" "}
+                    <span className="font-mono text-primary">{formatAmount(cur.amount)} {cur.asset}</span>{" "}
+                    carrying the per-seat memo below. The ledger credits your chair from the
+                    memo when the reconciliation sweeps the escrow.
+                  </>
+                ) : (
+                  <>
+                    Send <span className="font-mono text-primary">{formatAmount(cur.amount)} {cur.asset}</span> to
+                    the escrow address. The sweep places the dare once the deposit is observed
+                    on-chain.
+                  </>
+                )}
               </p>
               <div className="flex items-center gap-3 rounded-xl border border-border bg-muted/20 px-4 py-3">
                 <p className="flex-1 break-all font-mono text-sm text-foreground">
@@ -313,10 +543,20 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
                   </button>
                 )}
               </div>
+              {isRoom && mySeat && (
+                <div className="flex items-center gap-3 rounded-xl border border-border bg-muted/20 px-4 py-3">
+                  <p className="flex-1 break-all font-mono text-xs text-muted-foreground">
+                    memo: <span className="text-primary">nimdares:{cur.id}:{mySeat.id}</span>
+                  </p>
+                </div>
+              )}
               {copied && <StatusPill label="COPIED" tone="live" live />}
               {cur.asset === "NIM" && wallet.provider && wallet.status === "ready" && (
                 <div className="flex flex-wrap items-center gap-4 border-t border-border pt-4">
-                  <Button onClick={() => void fundFromWallet()} disabled={funding.phase === "sending"}>
+                  <Button
+                    onClick={() => void fundFromWallet()}
+                    disabled={funding.phase === "sending" || (isRoom && !mySeat)}
+                  >
                     {funding.phase === "sending" ? "Sending…" : `Fund ${formatAmount(cur.amount)} NIM from wallet`}
                   </Button>
                   <p className="font-mono text-[11px] text-muted-foreground">
@@ -376,7 +616,7 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
       )}
 
       {/* proof submission */}
-      {(cur.status === "ACTIVE" || cur.status === "PENDING_FUNDING") && (
+      {(cur.status === "ACTIVE" || cur.status === "PENDING_FUNDING") && !isRoom && (
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
@@ -435,6 +675,82 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
                 <p className="font-mono text-[11px] text-red-400">ERR: {submit.error}</p>
               )}
               {submit.phase === "done" && (
+                <p className="font-mono text-[11px] text-primary">OK: {submit.message}</p>
+              )}
+            </div>
+          </HudPanel>
+        </motion.div>
+      )}
+
+      {/* room seat proof */}
+      {isRoom && mySeat && (cur.status === "LOBBY" || cur.status === "ACTIVE") && (
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.4, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+        >
+          <HudPanel
+            label="Your seat proof"
+            icon={<VerifierIcon className="size-3.5" />}
+            badge={mySeat.funded ? "SEAT FUNDED" : "FUND SEAT FIRST"}
+          >
+            <div className="flex flex-col gap-5">
+              {!mySeat.funded ? (
+                <p className="text-sm leading-relaxed text-muted-foreground">
+                  Your chair is reserved but not funded. Fund it above, then come back to attach
+                  proof against the acceptance criteria.
+                </p>
+              ) : cur.verifierKind === "VISION" ? (
+                <>
+                  <p className="text-sm leading-relaxed text-muted-foreground">
+                    Attach the evidence screenshot. The AI judge checks it against the
+                    acceptance criteria once the deadline passes.
+                  </p>
+                  <input
+                    ref={fileRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={onFile}
+                  />
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Button
+                      onClick={() => fileRef.current?.click()}
+                      disabled={wallet.status !== "ready" || submit.phase === "signing" || submit.phase === "submitting" || submit.phase === "capturing"}
+                    >
+                      {submit.phase === "capturing" ? "Reading…" : "Attach screenshot"}
+                      <ImageIcon className="size-4" />
+                    </Button>
+                    {mySeat.proofImageUrl && (
+                      <StatusPill label="PROOF ON LEDGER" tone="neutral" />
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="flex flex-col gap-4">
+                  <p className="text-sm leading-relaxed text-muted-foreground">
+                    Link your {cur.verifierKind === "GITHUB" ? "GitHub commit activity" : "Strava activity"} as proof.
+                  </p>
+                  <input
+                    value={proofLink}
+                    onChange={(e) => setProofLink(e.target.value)}
+                    placeholder={cur.verifierKind === "GITHUB" ? "https://github.com/user" : "https://www.strava.com/activities/…"}
+                    className="hud-input"
+                  />
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Button
+                      onClick={() => void submitSeatProof()}
+                      disabled={wallet.status !== "ready" || submit.phase === "signing" || submit.phase === "submitting" || !proofLink.trim()}
+                    >
+                      {submit.phase === "signing" ? "Signing…" : submit.phase === "submitting" ? "Submitting…" : "Submit proof"}
+                    </Button>
+                  </div>
+                </div>
+              )}
+              {submit.phase === "idle" && submit.error && !submit.error.startsWith("funding") && (
+                <p className="font-mono text-[11px] text-red-400">ERR: {submit.error}</p>
+              )}
+              {submit.phase === "done" && !submit.message.startsWith("seat reserved") && (
                 <p className="font-mono text-[11px] text-primary">OK: {submit.message}</p>
               )}
             </div>
