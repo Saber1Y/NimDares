@@ -103,3 +103,47 @@ export async function fetchNimBalance(address: string): Promise<bigint> {
   const raw = typeof balance === "number" ? balance.toString() : balance;
   return BigInt(raw.length > 0 ? raw : "0");
 }
+
+export interface NimIncomingTx {
+  hash: string;
+  fromAddress: string;
+  value: bigint;
+  memo: string | null;
+}
+
+const DEFAULT_API = "https://api.nimiq.com";
+
+export async function fetchNimIncomingTxs(address: string): Promise<NimIncomingTx[]> {
+  const api = process.env.NIM_API_URL ?? DEFAULT_API;
+  const res = await fetch(
+    `${api}/v2/accounts/${encodeURIComponent(address)}/transactions?limit=50`,
+    { cache: "no-store", signal: AbortSignal.timeout(10_000) }
+  );
+  if (!res.ok) throw new Error(`NIM API transactions ${res.status}`);
+  const payload = (await res.json()) as {
+    transactions?: Array<{
+      hash: string;
+      fromAddress: string;
+      toAddress?: string;
+      value: number | string;
+      data?: string | null;
+    }>;
+  };
+  const txs = payload.transactions ?? [];
+  return txs
+    .filter((t) => t.toAddress === address)
+    .map((t) => ({ hash: t.hash, fromAddress: t.fromAddress, value: BigInt(t.value), memo: parseMemo(t.data) }));
+}
+
+function parseMemo(data?: string | null): string | null {
+  if (!data) return null;
+  const hex = data.startsWith("0x") || data.startsWith("0X") ? data.slice(2) : data;
+  if (hex.length === 0 || hex.length % 2 !== 0 || !/^[0-9a-fA-F]+$/.test(hex)) return null;
+  try {
+    const bytes = Buffer.from(hex, "hex");
+    const text = bytes.toString("utf8");
+    return text.startsWith("nimdares:") ? text : null;
+  } catch {
+    return null;
+  }
+}
