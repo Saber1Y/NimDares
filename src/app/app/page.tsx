@@ -29,6 +29,7 @@ type ApiState = {
 };
 
 type ReconcileState = { phase: "idle" } | { phase: "reconciling" } | { phase: "done"; message: string };
+type ModeFilter = "all" | "solo" | "team" | "arena";
 
 export default function Dashboard() {
   const { status: walletStatus, address, network, error } = useNimiqWallet();
@@ -39,6 +40,7 @@ export default function Dashboard() {
   });
   const [rooms, setRooms] = useState<Dare[]>([]);
   const [reconcile, setReconcile] = useState<ReconcileState>({ phase: "idle" });
+  const [modeFilter, setModeFilter] = useState<ModeFilter>("all");
 
   useEffect(() => {
     let cancelled = false;
@@ -103,6 +105,20 @@ export default function Dashboard() {
     }
   }, [address, walletStatus]);
 
+  const filteredDares = api.dares.filter((dare) => {
+    if (modeFilter === "all") return true;
+    if (modeFilter === "solo") return dare.maxCapacity === 1;
+    if (modeFilter === "team") return dare.maxCapacity > 1 && dare.isPrivate;
+    return dare.maxCapacity > 1 && !dare.isPrivate;
+  });
+  const visibleRooms = modeFilter === "all" || modeFilter === "arena" ? rooms : [];
+  const modeCounts: Record<ModeFilter, number> = {
+    all: api.dares.length + rooms.length,
+    solo: api.dares.filter((dare) => dare.maxCapacity === 1).length,
+    team: api.dares.filter((dare) => dare.maxCapacity > 1 && dare.isPrivate).length,
+    arena: api.dares.filter((dare) => dare.maxCapacity > 1 && !dare.isPrivate).length + rooms.length,
+  };
+
   return (
     <div className="flex flex-col gap-8">
       {/* header */}
@@ -132,6 +148,47 @@ export default function Dashboard() {
             <Shield className="size-4" /> Admin
           </Button>
         </div>
+      </motion.div>
+
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.15, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+      >
+        <HudPanel label="Dare modes" icon={<Swords className="size-3.5" />}>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" role="tablist" aria-label="Filter dares by mode">
+            {([
+              ["all", "All"],
+              ["solo", "Solo"],
+              ["team", "Team"],
+              ["arena", "Arena"],
+            ] as const).map(([value, label]) => {
+              const selected = modeFilter === value;
+              return (
+                <button
+                  key={value}
+                  type="button"
+                  role="tab"
+                  aria-selected={selected}
+                  onClick={() => setModeFilter(value)}
+                  className={`flex items-center justify-between rounded-xl border px-4 py-3 text-left transition-all active:scale-[0.98] ${
+                    selected
+                      ? "border-primary bg-primary text-primary-foreground shadow-[0_0_20px_rgb(233_178_19_/_0.16)]"
+                      : "border-border bg-background/40 text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                  }`}
+                >
+                  <span className="font-mono text-[11px] uppercase tracking-[0.14em]">{label}</span>
+                  <span className={`font-mono text-xs ${selected ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
+                    {modeCounts[value]}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <p className="mt-3 font-mono text-[11px] text-muted-foreground">
+            &gt; {modeFilter === "all" ? "showing every commitment and open arena table" : `showing ${modeFilter} commitments`}
+          </p>
+        </HudPanel>
       </motion.div>
 
       {/* wallet HUD */}
@@ -238,7 +295,8 @@ export default function Dashboard() {
       </div>
 
       {/* arena feed */}
-      <motion.div
+      {(visibleRooms.length > 0 || modeFilter === "all" || modeFilter === "arena") && (
+        <motion.div
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.45, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
@@ -248,7 +306,7 @@ export default function Dashboard() {
           icon={<Globe className="size-3.5" />}
           badge={rooms.length > 0 ? `${rooms.length} OPEN` : undefined}
         >
-          {rooms.length === 0 ? (
+          {visibleRooms.length === 0 ? (
             <EmptyLedger
               icon={<Globe className="size-6 text-muted-foreground" />}
               title="No open tables"
@@ -256,13 +314,14 @@ export default function Dashboard() {
             />
           ) : (
             <div className="flex flex-col gap-3">
-              {rooms.map((d) => (
+              {visibleRooms.map((d) => (
                 <RoomCard key={d.id} dare={d} />
               ))}
             </div>
           )}
         </HudPanel>
-      </motion.div>
+        </motion.div>
+      )}
 
       {/* dare ledger */}
       <motion.div
@@ -285,16 +344,16 @@ export default function Dashboard() {
               body="No dares service is reachable. API routes are not deployed or DATABASE_URL is unset. Resolve once the backend is running."
             />
           )}
-          {api.status === "ok" && api.dares.length === 0 && (
+          {api.status === "ok" && filteredDares.length === 0 && (
             <EmptyLedger
               icon={<Swords className="size-6 text-muted-foreground" />}
               title="No dares on the ledger"
               body="Your first dare is one stake away. Escrow opens the moment funding lands."
             />
           )}
-          {api.status === "ok" && api.dares.length > 0 && (
+          {api.status === "ok" && filteredDares.length > 0 && (
             <div className="flex flex-col gap-4">
-              {api.dares.map((d) => (
+              {filteredDares.map((d) => (
                 <DareRow key={d.id} dare={d} />
               ))}
             </div>
