@@ -2,11 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CircleDot } from "lucide-react";
 import { motion } from "motion/react";
 import { useNimiqWallet } from "@/components/nimiq-provider";
 import { StatusPill } from "@/components/ui/status-pill";
 import { cn } from "@/lib/cn";
+import { BrandMark } from "@/components/brand-mark";
 
 export function AppNav() {
   const { address, status, network } = useNimiqWallet();
@@ -25,9 +25,7 @@ export function AppNav() {
       className="fixed left-1/2 top-5 z-50 flex w-[min(920px,calc(100vw-2rem))] -translate-x-1/2 items-center justify-between rounded-full border border-border bg-card/70 px-4 py-3 shadow-xl shadow-black/10 backdrop-blur-xl md:px-5"
     >
       <Link href="/app" className="flex items-center gap-3 font-mono text-sm tracking-[0.16em]">
-        <span className="flex size-7 items-center justify-center rounded-md bg-primary text-primary-foreground shadow-[0_0_15px_rgba(200,245,106,0.3)]">
-          <CircleDot className="size-4" />
-        </span>
+        <BrandMark className="size-7 shadow-[0_0_18px_rgb(233_178_19_/_0.24)]" />
         NIMDARES
       </Link>
 
