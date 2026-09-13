@@ -75,8 +75,26 @@ r = await json(`${BASE}/api/dares/${roomId}/join`, {
   body: JSON.stringify({ roomCode: code }),
 });
 assert(r.status === 201, `bob joins team room (${r.status})`);
+const bobSeatId = r.body?.participant?.id;
+assert(typeof bobSeatId === "string", `bob receives a participant id`);
 
-// 4. Unfunded room voids once the deadline passes
+// 4. Bob stores a seat proof (headless VISION stores the image data URL)
+r = await json(`${BASE}/api/dares/${roomId}/seats/${bobSeatId}/proof`, {
+  method: "POST",
+  headers: { "content-type": "application/json", authorization: bob.auth },
+  body: JSON.stringify({ proofImage: "data:image/png;base64,AAAA" }),
+});
+assert(r.status === 200 && r.body?.participant?.id === bobSeatId, `seat proof stored (${r.status})`);
+
+// 5. Seat proof endpoint denies other identities
+r = await json(`${BASE}/api/dares/${roomId}/seats/${bobSeatId}/proof`, {
+  method: "POST",
+  headers: { "content-type": "application/json", authorization: alice.auth },
+  body: JSON.stringify({ proofImage: "data:image/png;base64,AAAA" }),
+});
+assert(r.status === 403, `seat proof is owner-scoped (${r.status})`);
+
+// 6. Unfunded room voids once the deadline passes
 await new Promise((res) => setTimeout(res, 6_000));
 r = await json(`${BASE}/api/cron/sweep`, { method: "POST" });
 assert(r.status === 200 && r.body?.ok === true, `sweep runs (${JSON.stringify(r.body?.stats)})`);
@@ -86,7 +104,7 @@ assert(r.body?.dare?.status === "VOIDED", `unfunded room voids at deadline (got 
 assert(r.body?.dare?.verifierResult?.status === "INVALID", `voided room records INVALID verdict`);
 assert((r.body?.participants ?? []).length === 2, `seats preserved after void`);
 
-// 5. Room code does not admit late joiners once the room settles
+// 7. Room code does not admit late joiners once the room settles
 r = await json(`${BASE}/api/dares/${roomId}/join`, {
   method: "POST",
   headers: { "content-type": "application/json", authorization: alice.auth },
