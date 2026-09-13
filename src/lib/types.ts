@@ -2,9 +2,11 @@ export type Asset = "NIM" | "USDT";
 
 export type DareStatus =
   | "PENDING_FUNDING"
+  | "LOBBY"
   | "ACTIVE"
   | "SUBMITTED"
   | "ADJUDICATED"
+  | "SETTLED"
   | "WON"
   | "LOST"
   | "SWEEPING";
@@ -28,6 +30,9 @@ export interface Dare {
   criteria: string;
   asset: Asset;
   amount: number; // NIM units or USDT units (human-readable)
+  maxCapacity: number;
+  isPrivate: boolean;
+  roomCode: string | null;
   deadline: string;
   status: DareStatus;
   verifierKind: VerifierKind;

@@ -1,4 +1,4 @@
-import type { DareRecord, EscrowBalanceRecord, LedgerSummary } from "@/lib/db";
+import type { DareRecord, EscrowBalanceRecord, LedgerSummary, ParticipantRecord } from "@/lib/db";
 import { NIM_DECIMALS } from "@/lib/config";
 import { getNimEscrowInfo } from "@/lib/escrow/nim";
 import { getEvmEscrowInfo } from "@/lib/escrow/evm";
@@ -21,6 +21,9 @@ export function dareToClient(d: DareRecord): Dare {
       d.asset === "NIM"
         ? Number(d.amountRaw) / NIM_DECIMALS
         : Number(d.amountRaw) / 1_000_000,
+    maxCapacity: d.maxCapacity,
+    isPrivate: d.isPrivate,
+    roomCode: d.roomCode,
     deadline: d.deadline.toISOString(),
     status: d.status,
     verifierKind: d.verifierKind,
@@ -33,6 +36,18 @@ export function dareToClient(d: DareRecord): Dare {
     payoutStatus: d.payoutStatus ?? null,
     funded: d.fundedAt !== null,
     escrow: escrowFor(d.asset),
+  };
+}
+
+export function participantToClient(p: ParticipantRecord) {
+  return {
+    id: p.id,
+    userAddress: p.userAddress,
+    funded: p.fundedAt !== null,
+    fundingTxHash: p.fundingTxHash,
+    aiVerdict: p.aiVerdict,
+    verdictReason: p.verdictReason,
+    joinedAt: p.joinedAt.toISOString(),
   };
 }
 
