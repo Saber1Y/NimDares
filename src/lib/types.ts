@@ -55,3 +55,15 @@ export interface LedgerSummary {
   won: number;
   lost: number;
 }
+
+export type RoomMode = "solo" | "team" | "arena";
+
+export interface Participant {
+  id: string;
+  userAddress: string;
+  funded: boolean;
+  fundingTxHash: string | null;
+  aiVerdict: "VALID" | "INVALID" | "WAITING" | "UNAVAILABLE";
+  verdictReason: string | null;
+  joinedAt: string;
+}
