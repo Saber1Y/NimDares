@@ -38,8 +38,8 @@ cp .env.example .env   # or create .env manually
 | `GEMINI_API_KEY` | No | Google Gemini API key for vision adjudication. |
 | `ESCROW_NIM_KEY_HEX` | No | NIM escrow private key hex (64 chars). Needed for NIM payouts. |
 | `ESCROW_EVM_KEY_HEX` | No | EVM/Polygon escrow private key hex. Needed for USDT payouts. |
-| `CHARITY_WALLET` | No | NIM address receiving solo losers' stakes. |
-| `COMMUNITY_TREASURY` | No | NIM address receiving the pot when a room has zero winners. |
+| `CHARITY_WALLET` / `*_MAINNET` / `*_TESTNET` | No | NIM address receiving solo losers' stakes (per-network; mainnet default = Nimiq ImpactX Foundation). |
+| `COMMUNITY_TREASURY` / `*_MAINNET` / `*_TESTNET` | No | NIM address receiving the pot when a room has zero winners (per-network). |
 | `GITHUB_TOKEN` | No | GitHub PAT for API-based dare verification. |
 | `STRAVA_ACCESS_TOKEN` | No | Strava API token for activity verification. |
 | `CRON_SECRET` | No | Secret for protecting the sweep cron endpoint. |

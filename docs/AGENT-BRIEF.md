@@ -119,6 +119,8 @@ const raw = tx.serialize(); // broadcast-friendly; BufferUtils.toHex for wire
   `nimdares:<dareId>:<participantId>`; reconcile parses the memo and credits the seat. Never trust client-claimed tx hashes.
 - Settlement: `/api/cron/sweep` on deadline expiry. Solo = refund VALID / route INVALID to `CHARITY_WALLET`.
   Team/Arena = winners split `stake + floor(slashedPot / winners)`; zero winners => whole pot to `COMMUNITY_TREASURY`.
+- Treasury addresses are network-aware (`nim.ts` `getNimCharityAddress` / `getNimCommunityTreasuryAddress`): `CHARITY_WALLET_MAINNET` / `COMMUNITY_TREASURY_MAINNET` take precedence over the unsuffixed base vars, and `*_TESTNET` over base on testnet.
+- MAINNET treasury default = the official Nimiq ImpactX Foundation charity wallet `NQ19 YG54 46TX EHGQ D2R2 V8XA JX84 UFG0 S0MC` (Nimiq Transparency Report, Sep 2018: the 2% / 420M NIM vesting contract; verified on-chain as a vesting account). TESTNET = a controlled developer wallet ("quitter's faucet", key in `TESTNET_TREASURY_KEY_HEX`, testnet-only) so slashed test funds can be redistributed during demos.
   Remainder stays in the slash pool. Mark room `SETTLED`.
 
 ## Design (command-center console)
