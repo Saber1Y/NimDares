@@ -44,7 +44,9 @@ cp .env.example .env   # or create .env manually
 | `STRAVA_ACCESS_TOKEN` | No | Strava API token for activity verification. |
 | `CRON_SECRET` | No | Secret for protecting the sweep cron endpoint. |
 | `NEXT_PUBLIC_NETWORK` | No | `amoy` (default) or `mainnet` for Polygon EVM. |
-| `NIM_RPC_URL` | No | NIM RPC endpoint (default: `rpc.nimiqwatch.com`). |
+| `NIMIQ_NETWORK` | No | Nimiq network to track: `mainnet` (default) or `testnet`. |
+| `NIM_RPC_URL` | No | NIM JSON-RPC endpoint (default: `rpc.nimiqwatch.com` mainnet / `rpc.testnet.nimiqwatch.com` testnet). |
+| `NIM_NETWORK_ID` | No | Albatross network id override (default: `24` mainnet / `5` testnet). |
 | `EVM_RPC_URL` | No | Polygon RPC endpoint. |
 
 ### Development

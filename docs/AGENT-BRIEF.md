@@ -78,7 +78,8 @@ tx.sign(kp);
 const raw = tx.serialize(); // broadcast-friendly; BufferUtils.toHex for wire
 ```
 
-- `networkId` for mainnet is 2.
+- `networkId` (Albatross, current): mainnet `24`, testnet `5`. The old pre-Albatross `2` is accepted by `TransactionBuilder` but rejected as invalid on current chains, so do not use it. Select per deployment via `NIMIQ_NETWORK=mainnet|testnet` in `src/lib/escrow/nim.ts`.
+- Reconciliation reads `getTransactionsByAddress` (JSON-RPC) for deposits + memos; broadcast uses `sendRawTransaction`; balance uses `getAccountByAddress`. Public RPC endpoints: mainnet `https://rpc.nimiqwatch.com`, testnet `https://rpc.testnet.nimiqwatch.com` (JSON-RPC 2.0 POST, no SLA, write methods may be rate-limited).
 - `tx.hash()` works offline; `tx.verify()` needs full account state (do not rely on it offline).
 - `@nimiq/core-web` is browser-only (WASM via worker + `document`); we do NOT use it server-side.
 - NIM is the natural currency: users deposit NIM in-app, escrow holds it, payouts are native NIM tx.
