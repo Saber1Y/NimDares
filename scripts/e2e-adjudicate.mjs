@@ -1,6 +1,7 @@
 /*
  * Full adjudication E2E test with GEMINI_API_KEY.
  * Exercises the complete VISION flow: create dare → submit proof → adjudicate → verdict.
+ * The dare uses a short deadline so the sweep adjudicates it shortly after proof submission.
  * Requires: GEMINI_API_KEY env var set, dev server running.
  * Usage: node scripts/e2e-adjudicate.mjs [baseUrl]
  */
@@ -17,6 +18,8 @@ function assert(cond, msg) {
     console.log(`PASS: ${msg}`);
   }
 }
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function json(url, opts) {
   const res = await fetch(url, opts);
@@ -58,7 +61,8 @@ assert(r.body?.user?.address === expectedAddress, `address derived correctly`);
 
 // Step 2: Create a VISION dare
 console.log("\n--- Step 2: Create VISION dare ---");
-const deadline = new Date(Date.now() + 48 * 3600_000).toISOString();
+// Short deadline (8s) so the sweep adjudicates this dare moments after proof submission.
+const deadline = new Date(Date.now() + 8_000).toISOString();
 r = await json(`${BASE}/api/dares`, {
   method: "POST",
   headers: { "content-type": "application/json", authorization: authHeader },
@@ -93,6 +97,13 @@ assert(
   r.body?.dare?.status === "SUBMITTED",
   `dare status is SUBMITTED after proof upload`
 );
+
+// Wait for the dare deadline to pass so the sweep will adjudicate it.
+const remainMs = new Date(deadline).getTime() - Date.now();
+if (remainMs > 0) {
+  console.log(`  (waiting ${Math.ceil(remainMs / 1000)}s for deadline…)`);
+  await sleep(remainMs + 500);
+}
 
 // Step 4: Run adjudication via sweep endpoint
 console.log("\n--- Step 4: Trigger adjudication (sweep) ---");
