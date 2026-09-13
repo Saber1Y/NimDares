@@ -38,8 +38,8 @@ export function TerminalBlock({
   children: ReactNode;
 }) {
   return (
-    <div className={cn("overflow-hidden rounded-2xl border border-border bg-[#09090b] shadow-2xl", className)}>
-      <div className="flex items-center gap-2 border-b border-border/50 bg-[#121214] px-4 py-3">
+    <div className={cn("overflow-hidden rounded-2xl border border-border bg-background shadow-2xl", className)}>
+      <div className="flex items-center gap-2 border-b border-border/50 bg-card px-4 py-3">
         <span className="size-2.5 rounded-full bg-red-500/80" />
         <span className="size-2.5 rounded-full bg-yellow-500/80" />
         <span className="size-2.5 rounded-full bg-green-500/80" />

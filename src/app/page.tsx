@@ -17,7 +17,7 @@ const fade = {
 
 export default function Landing() {
   return (
-    <main className="relative min-h-[100dvh] overflow-hidden bg-[#09090b] text-foreground">
+    <main className="relative min-h-[100dvh] overflow-hidden bg-background text-foreground">
       <DotGrid />
 
       <div className="relative z-10">

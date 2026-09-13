@@ -310,7 +310,7 @@ function RoomCard({ dare }: { dare: Dare }) {
   return (
     <Link
       href={`/app/dare/${dare.id}`}
-      className="group flex flex-col gap-3 rounded-2xl border border-border bg-[#09090b]/60 p-5 transition-all hover:-translate-y-0.5 hover:border-primary/40 md:flex-row md:items-center md:justify-between"
+      className="group flex flex-col gap-3 rounded-2xl border border-border bg-background/60 p-5 transition-all hover:-translate-y-0.5 hover:border-primary/40 md:flex-row md:items-center md:justify-between"
     >
       <div className="min-w-0">
         <div className="flex items-center gap-3">
@@ -368,7 +368,7 @@ function DareRow({ dare }: { dare: Dare }) {
   return (
     <Link
       href={`/app/dare/${dare.id}`}
-      className="group flex flex-col gap-4 rounded-2xl border border-border bg-[#09090b]/60 p-5 transition-all hover:-translate-y-0.5 hover:border-primary/40 md:flex-row md:items-center md:justify-between"
+      className="group flex flex-col gap-4 rounded-2xl border border-border bg-background/60 p-5 transition-all hover:-translate-y-0.5 hover:border-primary/40 md:flex-row md:items-center md:justify-between"
     >
       <div className="min-w-0">
         <div className="flex items-center gap-3">

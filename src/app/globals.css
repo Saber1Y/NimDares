@@ -2,15 +2,15 @@
 
 :root {
   color-scheme: dark;
-  --background: #09090b;
-  --foreground: oklch(0.94 0.018 165);
-  --card: oklch(0.17 0.022 180);
-  --primary: oklch(0.88 0.18 116);
-  --primary-foreground: oklch(0.16 0.03 140);
-  --muted: oklch(0.21 0.025 180);
-  --muted-foreground: oklch(0.68 0.035 170);
-  --border: oklch(1 0 0 / 11%);
-  --ring: oklch(0.88 0.18 116);
+  --background: #0d1026;
+  --foreground: #f7f4e8;
+  --card: #171c3a;
+  --primary: #e9b213;
+  --primary-foreground: #1f2348;
+  --muted: #252b50;
+  --muted-foreground: #aeb4d1;
+  --border: rgb(233 178 19 / 18%);
+  --ring: #e9b213;
   --radius: 0.75rem;
 }
 
