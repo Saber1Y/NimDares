@@ -12,6 +12,8 @@ import {
   Hourglass,
   RefreshCw,
   Shield,
+  Globe,
+  Users,
 } from "lucide-react";
 import { useNimiqWallet } from "@/components/nimiq-provider";
 import { HudPanel } from "@/components/ui/hud-panel";
@@ -35,6 +37,7 @@ export default function Dashboard() {
     dares: [],
     summary: null,
   });
+  const [rooms, setRooms] = useState<Dare[]>([]);
   const [reconcile, setReconcile] = useState<ReconcileState>({ phase: "idle" });
 
   useEffect(() => {
@@ -56,6 +59,23 @@ export default function Dashboard() {
       cancelled = true;
     };
   }, [address]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/dares?mode=open", { cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) setRooms(data.rooms ?? []);
+      } catch {
+        /* arena feed is best-effort */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const runReconcile = useCallback(async () => {
     if (!address || walletStatus !== "ready") return;
@@ -217,11 +237,38 @@ export default function Dashboard() {
         ))}
       </div>
 
+      {/* arena feed */}
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.45, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+      >
+        <HudPanel
+          label="Arena"
+          icon={<Globe className="size-3.5" />}
+          badge={rooms.length > 0 ? `${rooms.length} OPEN` : undefined}
+        >
+          {rooms.length === 0 ? (
+            <EmptyLedger
+              icon={<Globe className="size-6 text-muted-foreground" />}
+              title="No open tables"
+              body="Public arena rooms appear here for anyone to join. Create one yourself and the arena fills from the community."
+            />
+          ) : (
+            <div className="flex flex-col gap-3">
+              {rooms.map((d) => (
+                <RoomCard key={d.id} dare={d} />
+              ))}
+            </div>
+          )}
+        </HudPanel>
+      </motion.div>
+
       {/* dare ledger */}
       <motion.div
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.4, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+        transition={{ delay: 0.55, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
       >
         <HudPanel
           label="Dare ledger"
@@ -255,6 +302,35 @@ export default function Dashboard() {
         </HudPanel>
       </motion.div>
     </div>
+  );
+}
+
+function RoomCard({ dare }: { dare: Dare }) {
+  const live = dare.status === "LOBBY" || dare.status === "ACTIVE";
+  return (
+    <Link
+      href={`/app/dare/${dare.id}`}
+      className="group flex flex-col gap-3 rounded-2xl border border-border bg-[#09090b]/60 p-5 transition-all hover:-translate-y-0.5 hover:border-primary/40 md:flex-row md:items-center md:justify-between"
+    >
+      <div className="min-w-0">
+        <div className="flex items-center gap-3">
+          <p className="truncate font-medium text-foreground">{dare.title}</p>
+          <StatusPill label={dare.status} tone={live ? "live" : "neutral"} live={live} />
+        </div>
+        <p className="mt-1 line-clamp-1 font-mono text-[11px] text-muted-foreground">
+          {dare.asset} · {dare.amount.toLocaleString("en-US", { maximumFractionDigits: 2 })}
+          {" "}per seat · verifier {dare.verifierKind} · {timeLeft(dare.deadline)}
+        </p>
+      </div>
+      <div className="flex items-center gap-3 md:shrink-0">
+        <span className="flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground">
+          <Users className="size-3.5" />
+          {dare.maxCapacity} players
+        </span>
+        <span className="hidden font-mono text-[11px] text-primary md:inline">JOIN</span>
+        <ArrowRight className="size-4 text-muted-foreground transition-transform group-hover:translate-x-1 group-hover:text-primary" />
+      </div>
+    </Link>
   );
 }
 
@@ -297,6 +373,9 @@ function DareRow({ dare }: { dare: Dare }) {
       <div className="min-w-0">
         <div className="flex items-center gap-3">
           <p className="truncate font-medium text-foreground">{dare.title}</p>
+          {dare.maxCapacity > 1 && (
+            <StatusPill label={dare.isPrivate ? "TEAM" : "ARENA"} tone="neutral" />
+          )}
           <StatusPill label={dare.status} tone={tone} live={tone === "live"} />
         </div>
         <p className="mt-1 line-clamp-1 font-mono text-[11px] text-muted-foreground">
