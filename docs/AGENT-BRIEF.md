@@ -111,10 +111,13 @@ const raw = tx.serialize(); // broadcast-friendly; BufferUtils.toHex for wire
   `/app/dare/[id]` (room lobby + countdown + participant list), `/app/dare/[id]/proof` (submit proof).
 - API: `/api/auth/verify`, `/api/user` (me), `/api/dares` (GET list, POST create), `/api/dares/[id]`,
   `/api/dares/[id]/join` (join a room: capacity + roomCode gate, creates Participant), `/api/dares/[id]/proof`
-  (vision + api verifiers per participant), `/api/wallet/reconcile`, `/api/cron/sweep`.
+  (vision + api verifiers per participant), `/api/dares/[id]/fund` (verify native NIM payment),
+  `/api/wallet/reconcile`, `/api/cron/sweep`.
 - Escrow model: hot wallet holds inflows; ledger tracks expected balances per dare; sweep NEVER pays more than expected balance.
 - Slashing: lazy sweep on dashboard read + scheduled cron. Vercel Hobby cron is 1/day max.
-- Reconciliation: query NIM RPC (`api.nimiq.com/v2/...`) and Polygon RPC for incoming deposits; mark dare funded when balance arrives.
+- Reconciliation: query the configured NIM RPC and Polygon RPC for incoming deposits; mark dare funded only after on-chain evidence is visible.
+- Creation funding: `/app/create` creates the staged record, opens the native `sendBasicTransactionWithData` Pay sheet,
+  then calls `/api/dares/[id]/fund`; the client never claims a transaction hash as proof.
 - Deposit attribution: participants fund seats via `sendBasicTransactionWithData` with memo
   `nimdares:<dareId>:<participantId>`; reconcile parses the memo and credits the seat. Never trust client-claimed tx hashes.
 - Settlement: `/api/cron/sweep` on deadline expiry. Solo = refund VALID / route INVALID to `CHARITY_WALLET`.

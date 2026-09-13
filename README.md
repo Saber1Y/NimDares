@@ -90,8 +90,8 @@ src/
 ## How It Works
 
 1. **Connect** - User opens NimDares in Nimiq Pay. The SDK silently requests the wallet address.
-2. **Commit** - User creates a room: title, criteria, stake amount (NIM), deadline, verifier, and mode (Solo / Team / Arena).
-3. **Fund** - Each participant sends funds to the escrow address via the Nimiq Pay checkout sheet, tagged with a per-participant memo.
+2. **Commit and stake** - User enters the title, criteria, stake amount (NIM), deadline, verifier, and mode (Solo / Team / Arena), then approves the native Nimiq Pay payment sheet.
+3. **Confirm** - The app verifies the broadcast deposit against the escrow and only then marks the dare or funded room seat active.
 4. **Join** - Team rooms live behind a shareable link; Arena rooms are listed on the public feed until capacity is reached.
 5. **Submit Proof** - Before the deadline, each participant uploads a screenshot (Vision) or links an API activity.
 6. **Adjudicate** - After the deadline, the sweep cron runs Gemini vision / API verification.
@@ -110,6 +110,7 @@ src/
 | POST | `/api/auth/verify` | Verify Nimiq signature, create/return user |
 | GET | `/api/dares` | List dares (optionally filtered by `?owner=`, `?mode=`, `?open=`) |
 | POST | `/api/dares` | Create a new dare (Solo / Team / Arena) |
+| POST | `/api/dares/[id]/fund` | Verify a native NIM payment and activate the dare or funded room seat |
 | GET | `/api/dares/[id]` | Get a single dare with participants |
 | POST | `/api/dares/[id]/join` | Join a room (capacity + roomCode gate) |
 | POST | `/api/dares/[id]/proof` | Submit proof image or link for a seat |
