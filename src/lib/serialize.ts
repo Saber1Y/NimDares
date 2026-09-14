@@ -3,6 +3,7 @@ import { NIM_DECIMALS } from "@/lib/config";
 import { getNimEscrowInfo } from "@/lib/escrow/nim";
 import { getEvmEscrowInfo } from "@/lib/escrow/evm";
 import type { Asset, Dare } from "@/lib/types";
+import { isEvidenceSpec } from "@/lib/evidence-spec";
 
 function escrowFor(asset: Asset) {
   const info = asset === "NIM" ? getNimEscrowInfo() : getEvmEscrowInfo();
@@ -29,6 +30,10 @@ export function dareToClient(d: DareRecord): Dare {
     verifierKind: d.verifierKind,
     verifierLink: d.verifierLink ?? null,
     verifierResult: d.verifierResult,
+    evidenceSpec: isEvidenceSpec(d.evidenceSpec)
+      ? { requirements: d.evidenceSpec.requirements, expectedArtifact: d.evidenceSpec.expectedArtifact }
+      : null,
+    proofAttempts: d.proofAttempts,
     proofImageUrl: d.proofImageUrl ?? null,
     createdAt: d.createdAt.toISOString(),
     escrowTxHash: d.escrowTxHash ?? null,
@@ -49,6 +54,8 @@ export function participantToClient(p: ParticipantRecord) {
     proofLink: p.proofLink,
     aiVerdict: p.aiVerdict,
     verdictReason: p.verdictReason,
+    confidence: p.confidence,
+    proofAttempts: p.proofAttempts,
     joinedAt: p.joinedAt.toISOString(),
   };
 }

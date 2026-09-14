@@ -76,7 +76,7 @@ export async function POST(
         amountLuna: dare.asset === "NIM" ? dare.amountRaw.toString() : null,
         escrowAddress: escrowAddress || null,
         escrowConfigured,
-        memo: `nimdares:${dare.id}:${participant.id}`,
+        memo: `nimdares:${participant.id}`,
       },
       store: store.label,
     },

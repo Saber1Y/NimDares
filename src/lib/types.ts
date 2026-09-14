@@ -17,10 +17,20 @@ export type VerifierKind = "VISION" | "GITHUB" | "STRAVA";
 export type PayoutStatus = "PENDING" | "SETTLED" | "FAILED" | null;
 
 export interface DareVerifierResult {
-  status: "VALID" | "INVALID" | "UNAVAILABLE" | "WAITING";
+  status: "VALID" | "INVALID" | "AMBIGUOUS" | "UNAVAILABLE" | "WAITING";
   reason?: string;
   source?: string;
+  /** Probability the goal was met, 0-100. */
+  confidence?: number;
+  /** What the judge reported seeing in the screenshot. */
+  observations?: string;
   ruledAt?: string;
+}
+
+/** Proof requirements fixed when the dare was created and shown before staking. */
+export interface EvidenceSpecView {
+  requirements: string[];
+  expectedArtifact: string;
 }
 
 export interface Dare {
@@ -39,6 +49,8 @@ export interface Dare {
   verifierKind: VerifierKind;
   verifierLink?: string | null;
   verifierResult: DareVerifierResult | null;
+  evidenceSpec: EvidenceSpecView | null;
+  proofAttempts: number;
   proofImageUrl?: string | null;
   createdAt: string;
   escrowTxHash?: string | null;
@@ -65,7 +77,9 @@ export interface Participant {
   fundingTxHash: string | null;
   proofImageUrl?: string | null;
   proofLink?: string | null;
-  aiVerdict: "VALID" | "INVALID" | "WAITING" | "UNAVAILABLE";
+  aiVerdict: "VALID" | "INVALID" | "AMBIGUOUS" | "WAITING" | "UNAVAILABLE";
   verdictReason: string | null;
+  confidence: number | null;
+  proofAttempts: number;
   joinedAt: string;
 }

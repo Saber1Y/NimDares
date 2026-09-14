@@ -19,6 +19,7 @@ import { useNimiqWallet } from "@/components/nimiq-provider";
 import { HudPanel } from "@/components/ui/hud-panel";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { timeLeft } from "@/lib/format";
 import type { Dare, LedgerSummary } from "@/lib/types";
 
@@ -287,9 +288,13 @@ export default function Dashboard() {
             className="border-t border-border pt-3"
           >
             <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">{m.label}</p>
-            <p className="mt-3 text-2xl font-semibold tracking-[-0.04em] text-primary">
-              {m.value ?? "—"}
-            </p>
+            {m.value !== null ? (
+              <p className="mt-3 text-2xl font-semibold tracking-[-0.04em] text-primary">
+                {m.value}
+              </p>
+            ) : (
+              <Skeleton className="mt-3 h-8 w-20" />
+            )}
           </motion.div>
         ))}
       </div>
@@ -306,12 +311,18 @@ export default function Dashboard() {
           icon={<Globe className="size-3.5" />}
           badge={rooms.length > 0 ? `${rooms.length} OPEN` : undefined}
         >
-          {visibleRooms.length === 0 ? (
+          {visibleRooms.length === 0 && api.status !== "loading" ? (
             <EmptyLedger
               icon={<Globe className="size-6 text-muted-foreground" />}
               title="No open tables"
               body="Public arena rooms appear here for anyone to join. Create one yourself and the arena fills from the community."
             />
+          ) : visibleRooms.length === 0 && api.status === "loading" ? (
+            <div className="flex flex-col gap-3">
+              {Array.from({ length: 2 }).map((_, i) => (
+                <RoomCardSkeleton key={i} />
+              ))}
+            </div>
           ) : (
             <div className="flex flex-col gap-3">
               {visibleRooms.map((d) => (
@@ -335,7 +346,11 @@ export default function Dashboard() {
           badge={api.status === "ok" ? "LEDGER / SYNCED" : undefined}
         >
           {api.status === "loading" && (
-            <p className="font-mono text-sm text-muted-foreground">&gt; syncing ledger…</p>
+            <div className="flex flex-col gap-4">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <DareRowSkeleton key={i} />
+              ))}
+            </div>
           )}
           {api.status === "unavailable" && (
             <EmptyLedger
@@ -447,11 +462,49 @@ function DareRow({ dare }: { dare: Dare }) {
             label={dare.verifierResult?.status ?? "WAITING"}
             tone={dare.verifierResult?.status === "VALID" ? "success" : dare.verifierResult?.status === "INVALID" ? "failed" : "neutral"}
           />
+        ) : dare.status === "PENDING_FUNDING" ? (
+          <StatusPill label="CONFIRMING" tone="live" live />
         ) : (
           <StatusPill label="NEEDS FUNDING" tone="neutral" />
         )}
         <ArrowRight className="size-4 text-muted-foreground transition-transform group-hover:translate-x-1 group-hover:text-primary" />
       </div>
     </Link>
+  );
+}
+
+function DareRowSkeleton() {
+  return (
+    <div className="flex flex-col gap-4 rounded-2xl border border-border bg-background/60 p-5 md:flex-row md:items-center md:justify-between">
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-3">
+          <Skeleton className="h-5 w-48" />
+          <Skeleton className="h-5 w-16 rounded-full" />
+        </div>
+        <Skeleton className="mt-2 h-3.5 w-72" />
+      </div>
+      <div className="flex items-center gap-3 md:shrink-0">
+        <Skeleton className="h-5 w-20 rounded-full" />
+        <Skeleton className="size-4" />
+      </div>
+    </div>
+  );
+}
+
+function RoomCardSkeleton() {
+  return (
+    <div className="flex flex-col gap-3 rounded-2xl border border-border bg-background/60 p-5 md:flex-row md:items-center md:justify-between">
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-3">
+          <Skeleton className="h-5 w-40" />
+          <Skeleton className="h-5 w-14 rounded-full" />
+        </div>
+        <Skeleton className="mt-2 h-3.5 w-64" />
+      </div>
+      <div className="flex items-center gap-3 md:shrink-0">
+        <Skeleton className="h-4 w-16" />
+        <Skeleton className="size-4" />
+      </div>
+    </div>
   );
 }

@@ -34,6 +34,7 @@ enum VerifierKind {
 enum VerifierState {
   VALID
   INVALID
+  AMBIGUOUS
   UNAVAILABLE
   WAITING
 }
@@ -88,6 +89,10 @@ model Dare {
   deadline       DateTime
   status         DareStatus    @default(PENDING_FUNDING)
   verifierKind   VerifierKind
+  // Machine-checkable requirements generated at creation and shown before staking.
+  evidenceSpec   Json?
+  proofHash      String?
+  proofAttempts  Int           @default(0)
   verifierLink   String?
   verifierResult Json?
   proofImageUrl  String?
@@ -105,6 +110,7 @@ model Dare {
   @@index([status])
   @@index([isPrivate, status])
   @@index([createdAt])
+  @@index([proofHash])
 }
 
 model Participant {
@@ -118,6 +124,9 @@ model Participant {
   proofLink       String?
   aiVerdict       VerifierState @default(WAITING)
   verdictReason   String?
+  confidence      Int?
+  proofHash       String?
+  proofAttempts   Int           @default(0)
   payoutAmountRaw BigInt        @default(0)
   payoutTxHash    String?
   payoutStatus    PayoutStatus?
@@ -128,6 +137,7 @@ model Participant {
   @@unique([dareId, userAddress])
   @@index([dareId])
   @@index([userAddress])
+  @@index([proofHash])
 }
 
 model TxRecord {

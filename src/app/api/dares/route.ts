@@ -4,21 +4,53 @@ import { z } from "zod";
 import { getStore } from "@/lib/db";
 import { authenticate } from "@/lib/verify";
 import { getNimEscrowInfo } from "@/lib/escrow/nim";
+import { generateEvidenceSpec } from "@/lib/evidence-spec";
 import { getEvmEscrowInfo } from "@/lib/escrow/evm";
 import { NIM_DECIMALS } from "@/lib/config";
-import { dareToClient, participantToClient, summaryToClient } from "@/lib/serialize";
+import {
+  dareToClient,
+  participantToClient,
+  summaryToClient,
+} from "@/lib/serialize";
 
 const CreateDareSchema = z.object({
-  title: z.string().min(3).max(80),
-  description: z.string().min(10).max(2000),
-  criteria: z.string().min(10).max(2000),
-  asset: z.enum(["NIM", "USDT"]),
-  amount: z.number().positive().max(1000),
-  deadline: z.string().datetime(),
-  verifierKind: z.enum(["VISION", "GITHUB", "STRAVA"]),
-  verifierLink: z.string().min(3).max(160).optional(),
-  mode: z.enum(["solo", "team", "arena"]).default("solo"),
-  maxCapacity: z.number().int().min(2).max(50).optional(),
+  title: z
+    .string({ error: "Title is required" })
+    .min(3, "Title must be at least 3 characters")
+    .max(80, "Title must be 80 characters or fewer"),
+  description: z
+    .string({ error: "Description is required" })
+    .min(10, "Description must be at least 10 characters")
+    .max(2000, "Description must be 2000 characters or fewer"),
+  criteria: z
+    .string({ error: "Acceptance criteria is required" })
+    .min(10, "Criteria must be at least 10 characters")
+    .max(2000, "Criteria must be 2000 characters or fewer"),
+  asset: z.enum(["NIM", "USDT"], { error: "Asset must be NIM or USDT" }),
+  amount: z
+    .number({ error: "Amount must be a number" })
+    .positive("Amount must be greater than zero")
+    .max(1000, "Amount must be 1000 or less"),
+  deadline: z
+    .string({ error: "Deadline is required" })
+    .datetime("Deadline must be a valid date and time"),
+  verifierKind: z.enum(["VISION", "GITHUB", "STRAVA"], {
+    error: "Verifier must be VISION, GITHUB, or STRAVA",
+  }),
+  verifierLink: z
+    .string()
+    .min(3, "Verifier link must be at least 3 characters")
+    .max(160, "Verifier link must be 160 characters or fewer")
+    .optional(),
+  mode: z.enum(["solo", "team", "arena"], {
+    error: "Mode must be solo, team, or arena",
+  }).default("solo"),
+  maxCapacity: z
+    .number({ error: "Max capacity must be a number" })
+    .int("Max capacity must be a whole number")
+    .min(2, "Max capacity must be at least 2")
+    .max(50, "Max capacity must be 50 or fewer")
+    .optional(),
 });
 
 function roomCode(): string {
@@ -42,7 +74,13 @@ export async function GET(req: NextRequest) {
     });
   }
   const summary = summaryToClient(await store.summary());
-  return NextResponse.json({ ok: true, dares, rooms, summary, store: store.label });
+  return NextResponse.json({
+    ok: true,
+    dares,
+    rooms,
+    summary,
+    store: store.label,
+  });
 }
 
 export async function POST(req: NextRequest) {
@@ -54,34 +92,57 @@ export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as unknown;
   const parsed = CreateDareSchema.safeParse(body);
   if (!parsed.success) {
+    const fieldErrors = parsed.error.flatten().fieldErrors;
+    const firstMessage = Object.values(fieldErrors).find((msgs) => msgs?.length)?.[0] ?? "Invalid input";
     return NextResponse.json(
-      { ok: false, error: "invalid payload", issues: parsed.error.flatten().fieldErrors },
-      { status: 400 }
+      { ok: false, error: firstMessage, issues: fieldErrors },
+      { status: 400 },
     );
   }
 
-  const { title, description, criteria, asset, amount, deadline, verifierKind, verifierLink, mode, maxCapacity } =
-    parsed.data;
+  const {
+    title,
+    description,
+    criteria,
+    asset,
+    amount,
+    deadline,
+    verifierKind,
+    verifierLink,
+    mode,
+    maxCapacity,
+  } = parsed.data;
 
   const due = new Date(deadline);
   const maxDue = Date.now() + 90 * 86_400_000;
   if (due.getTime() <= Date.now() || due.getTime() > maxDue) {
     return NextResponse.json(
       { ok: false, error: "deadline must be in the future and within 90 days" },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
   const isMulti = mode === "team" || mode === "arena";
-  const cap = isMulti ? maxCapacity ?? 5 : 1;
+  const cap = isMulti ? (maxCapacity ?? 5) : 1;
   const isPrivate = mode !== "arena";
 
-  const amountRaw = asset === "NIM" ? BigInt(Math.round(amount * NIM_DECIMALS)) : BigInt(Math.round(amount * 1_000_000));
+  const amountRaw =
+    asset === "NIM"
+      ? BigInt(Math.round(amount * NIM_DECIMALS))
+      : BigInt(Math.round(amount * 1_000_000));
 
   const nimEscrow = getNimEscrowInfo();
   const evmEscrow = getEvmEscrowInfo();
   const escrowAddress = asset === "NIM" ? nimEscrow.address : evmEscrow.address;
-  const escrowConfigured = asset === "NIM" ? nimEscrow.configured : evmEscrow.configured;
+  const escrowConfigured =
+    asset === "NIM" ? nimEscrow.configured : evmEscrow.configured;
+
+  // Fix the proof checklist before the stake is placed, so the rules are known
+  // to the user up front and cannot drift once they know what they need to fake.
+  const evidenceSpec =
+    verifierKind === "VISION"
+      ? await generateEvidenceSpec({ title, description, criteria, deadline: due })
+      : null;
 
   const store = getStore();
   const dare = await store.createDare({
@@ -97,6 +158,7 @@ export async function POST(req: NextRequest) {
     maxCapacity: cap,
     isPrivate,
     roomCode: isMulti ? roomCode() : null,
+    evidenceSpec,
   });
 
   let participant = null;
@@ -133,6 +195,6 @@ export async function POST(req: NextRequest) {
       },
       store: store.label,
     },
-    { status: 201 }
+    { status: 201 },
   );
 }

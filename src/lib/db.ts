@@ -23,6 +23,7 @@ export interface NewDareInput {
   deadline: Date;
   verifierKind: VerifierKind;
   verifierLink?: string | null;
+  evidenceSpec?: unknown;
   maxCapacity?: number;
   isPrivate?: boolean;
   roomCode?: string | null;
@@ -44,7 +45,10 @@ export interface DareRecord {
   verifierKind: VerifierKind;
   verifierLink: string | null;
   verifierResult: DareVerifierResult | null;
+  evidenceSpec: unknown;
   proofImageUrl: string | null;
+  proofHash: string | null;
+  proofAttempts: number;
   escrowTxHash: string | null;
   payoutTxHash: string | null;
   payoutStatus: PayoutStatus | null;
@@ -61,8 +65,11 @@ export interface ParticipantRecord {
   fundedAt: Date | null;
   proofImageUrl: string | null;
   proofLink: string | null;
-  aiVerdict: "VALID" | "INVALID" | "UNAVAILABLE" | "WAITING";
+  aiVerdict: VerifierState;
   verdictReason: string | null;
+  confidence: number | null;
+  proofHash: string | null;
+  proofAttempts: number;
   payoutAmountRaw: bigint;
   payoutTxHash: string | null;
   payoutStatus: PayoutStatus;
@@ -86,6 +93,13 @@ export interface NewTxInput {
   toAddress?: string | null;
   txHash?: string | null;
   status?: "PENDING" | "CONFIRMED" | "FAILED" | "UNKNOWN";
+}
+
+export type VerifierState = "VALID" | "INVALID" | "AMBIGUOUS" | "UNAVAILABLE" | "WAITING";
+
+export interface FundedClaim {
+  kind: "dare" | "participant";
+  id: string;
 }
 
 export interface EscrowBalanceRecord {
@@ -138,6 +152,10 @@ export interface LedgerStore {
     id: string,
     patch: Partial<Omit<ParticipantRecord, "id">>
   ): Promise<ParticipantRecord | null>;
+  /** Finds the stake a settled deposit already paid for, so none is credited twice. */
+  findFundedByTxHash(hash: string): Promise<FundedClaim | null>;
+  /** True when this exact image has already been submitted as proof elsewhere. */
+  proofHashSeen(hash: string, exclude: { dareId?: string; participantId?: string }): Promise<boolean>;
   recordTx(input: NewTxInput): Promise<{ id: string }>;
   getEscrowBalance(
     asset: Asset,
@@ -183,7 +201,10 @@ function fromPrismaDare(d: {
   verifierKind: VerifierKind;
   verifierLink: string | null;
   verifierResult: unknown;
+  evidenceSpec: unknown;
   proofImageUrl: string | null;
+  proofHash: string | null;
+  proofAttempts: number;
   escrowTxHash: string | null;
   payoutTxHash: string | null;
   payoutStatus: PayoutStatus | null;
@@ -206,7 +227,10 @@ function fromPrismaDare(d: {
     verifierKind: d.verifierKind,
     verifierLink: d.verifierLink,
     verifierResult: (d.verifierResult as DareVerifierResult | null) ?? null,
+    evidenceSpec: d.evidenceSpec ?? null,
     proofImageUrl: d.proofImageUrl,
+    proofHash: d.proofHash,
+    proofAttempts: d.proofAttempts,
     escrowTxHash: d.escrowTxHash,
     payoutTxHash: d.payoutTxHash,
     payoutStatus: d.payoutStatus,
@@ -224,8 +248,11 @@ function fromPrismaParticipant(p: {
   fundedAt: Date | null;
   proofImageUrl: string | null;
   proofLink: string | null;
-  aiVerdict: "VALID" | "INVALID" | "UNAVAILABLE" | "WAITING";
+  aiVerdict: VerifierState;
   verdictReason: string | null;
+  confidence: number | null;
+  proofHash: string | null;
+  proofAttempts: number;
   payoutAmountRaw: bigint;
   payoutTxHash: string | null;
   payoutStatus: PayoutStatus;
@@ -242,6 +269,9 @@ function fromPrismaParticipant(p: {
     proofLink: p.proofLink,
     aiVerdict: p.aiVerdict,
     verdictReason: p.verdictReason,
+    confidence: p.confidence,
+    proofHash: p.proofHash,
+    proofAttempts: p.proofAttempts,
     payoutAmountRaw: p.payoutAmountRaw,
     payoutTxHash: p.payoutTxHash,
     payoutStatus: p.payoutStatus,
@@ -287,6 +317,7 @@ class PrismaLedgerStore implements LedgerStore {
         isPrivate: input.isPrivate ?? true,
         roomCode: input.roomCode ?? null,
         status: (input.maxCapacity ?? 1) > 1 ? "LOBBY" : "PENDING_FUNDING",
+        evidenceSpec: (input.evidenceSpec ?? null) as object | undefined,
       },
       include: { owner: true },
     });
@@ -335,6 +366,9 @@ class PrismaLedgerStore implements LedgerStore {
     if (patch.verifierResult !== undefined)
       data.verifierResult = patch.verifierResult as { status: string };
     if (patch.proofImageUrl !== undefined) data.proofImageUrl = patch.proofImageUrl;
+    if (patch.proofHash !== undefined) data.proofHash = patch.proofHash;
+    if (patch.proofAttempts !== undefined) data.proofAttempts = patch.proofAttempts;
+    if (patch.evidenceSpec !== undefined) data.evidenceSpec = patch.evidenceSpec;
     if (patch.escrowTxHash !== undefined) data.escrowTxHash = patch.escrowTxHash;
     if (patch.payoutTxHash !== undefined) data.payoutTxHash = patch.payoutTxHash;
     if (patch.payoutStatus !== undefined) data.payoutStatus = patch.payoutStatus;
@@ -386,11 +420,43 @@ class PrismaLedgerStore implements LedgerStore {
     if (patch.proofLink !== undefined) data.proofLink = patch.proofLink;
     if (patch.aiVerdict !== undefined) data.aiVerdict = patch.aiVerdict;
     if (patch.verdictReason !== undefined) data.verdictReason = patch.verdictReason;
+    if (patch.confidence !== undefined) data.confidence = patch.confidence;
+    if (patch.proofHash !== undefined) data.proofHash = patch.proofHash;
+    if (patch.proofAttempts !== undefined) data.proofAttempts = patch.proofAttempts;
     if (patch.payoutAmountRaw !== undefined) data.payoutAmountRaw = patch.payoutAmountRaw;
     if (patch.payoutTxHash !== undefined) data.payoutTxHash = patch.payoutTxHash;
     if (patch.payoutStatus !== undefined) data.payoutStatus = patch.payoutStatus;
     const p = await this.db().participant.update({ where: { id }, data });
     return fromPrismaParticipant(p);
+  }
+
+  async proofHashSeen(hash: string, exclude: { dareId?: string; participantId?: string }) {
+    const dare = await this.db().dare.findFirst({
+      where: { proofHash: hash, id: exclude.dareId ? { not: exclude.dareId } : undefined },
+      select: { id: true },
+    });
+    if (dare) return true;
+    const seat = await this.db().participant.findFirst({
+      where: {
+        proofHash: hash,
+        id: exclude.participantId ? { not: exclude.participantId } : undefined,
+      },
+      select: { id: true },
+    });
+    return seat !== null;
+  }
+
+  async findFundedByTxHash(hash: string): Promise<FundedClaim | null> {
+    const dare = await this.db().dare.findFirst({
+      where: { escrowTxHash: hash, fundedAt: { not: null } },
+      select: { id: true },
+    });
+    if (dare) return { kind: "dare", id: dare.id };
+    const seat = await this.db().participant.findFirst({
+      where: { fundingTxHash: hash, fundedAt: { not: null } },
+      select: { id: true },
+    });
+    return seat ? { kind: "participant", id: seat.id } : null;
   }
 
   async recordTx(input: NewTxInput) {
@@ -534,7 +600,10 @@ class MemoryLedgerStore implements LedgerStore {
       verifierKind: input.verifierKind,
       verifierLink: input.verifierLink ?? null,
       verifierResult: null,
+      evidenceSpec: input.evidenceSpec ?? null,
       proofImageUrl: null,
+      proofHash: null,
+      proofAttempts: 0,
       escrowTxHash: null,
       payoutTxHash: null,
       payoutStatus: null,
@@ -591,6 +660,9 @@ class MemoryLedgerStore implements LedgerStore {
       proofLink: null,
       aiVerdict: "WAITING",
       verdictReason: null,
+      confidence: null,
+      proofHash: null,
+      proofAttempts: 0,
       payoutAmountRaw: 0n,
       payoutTxHash: null,
       payoutStatus: null,
@@ -616,6 +688,26 @@ class MemoryLedgerStore implements LedgerStore {
     const next = { ...cur, ...patch, id: cur.id };
     this.participants.set(id, next);
     return next;
+  }
+
+  async proofHashSeen(hash: string, exclude: { dareId?: string; participantId?: string }) {
+    for (const d of this.dares.values()) {
+      if (d.proofHash === hash && d.id !== exclude.dareId) return true;
+    }
+    for (const p of this.participants.values()) {
+      if (p.proofHash === hash && p.id !== exclude.participantId) return true;
+    }
+    return false;
+  }
+
+  async findFundedByTxHash(hash: string): Promise<FundedClaim | null> {
+    for (const d of this.dares.values()) {
+      if (d.fundedAt && d.escrowTxHash === hash) return { kind: "dare", id: d.id };
+    }
+    for (const p of this.participants.values()) {
+      if (p.fundedAt && p.fundingTxHash === hash) return { kind: "participant", id: p.id };
+    }
+    return null;
   }
 
   async recordTx(input: NewTxInput) {

@@ -3,9 +3,14 @@
 import type { DareRecord } from "@/lib/db";
 
 export interface AdjudicationResult {
-  status: "VALID" | "INVALID" | "UNAVAILABLE";
+  /** AMBIGUOUS means the evidence is real but inconclusive: the stake is returned, never slashed. */
+  status: "VALID" | "INVALID" | "AMBIGUOUS" | "UNAVAILABLE";
   reason: string;
   source?: string;
+  /** Probability the goal was met, 0-100, when the verifier scores one. */
+  confidence?: number;
+  /** What the verifier observed, retained for disputes. */
+  observations?: string;
 }
 
 // Dispatches adjudication by verifier kind. Each verifier reports an honest

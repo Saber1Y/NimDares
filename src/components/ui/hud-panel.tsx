@@ -17,7 +17,7 @@ export function HudPanel({
   return (
     <section
       className={cn(
-        "rounded-2xl border border-border bg-card/65 p-5 shadow-2xl shadow-black/20 backdrop-blur-xl md:p-7",
+        "overflow-hidden rounded-2xl border border-border bg-card/65 p-5 shadow-2xl shadow-black/20 backdrop-blur-xl md:p-7",
         className
       )}
     >

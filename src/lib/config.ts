@@ -46,4 +46,32 @@ export function shouldUseEvmBridge(): boolean {
 export const SLASH_POOL_ADDRESS =
   process.env.SLASH_POOL_ADDRESS ?? "NQ07 0000 0000 0000 0000 0000 0000 0000 0000";
 
-export const ESCROW_FEE_BPS = 100; // 1% protocol fee on wins, allocated to slash pool
+/**
+ * Platform cut on pooled dares, in basis points. Charged only on the
+ * redistributed pot - the stakes forfeited by seats that failed to verify -
+ * never on a player's own returned stake. Solo dares pay no fee.
+ */
+export const POOL_FEE_BPS = Number(process.env.POOL_FEE_BPS ?? 200); // 2%
+export type NimNetwork = "mainnet" | "testnet";
+
+// Client-visible Nimiq network + RPC endpoint. The Mini App SDK exposes no
+// balance method, so the provider is pointed at this RPC and read-only calls
+// are routed through it (see components/nimiq-provider.tsx).
+export const NIM_NETWORK: NimNetwork =
+  (process.env.NEXT_PUBLIC_NIMIQ_NETWORK ?? "mainnet").toLowerCase() === "testnet"
+    ? "testnet"
+    : "mainnet";
+
+export const NIM_RPC_URL =
+  process.env.NEXT_PUBLIC_NIM_RPC_URL ??
+  (NIM_NETWORK === "testnet"
+    ? "https://rpc.testnet.nimiqwatch.com"
+    : "https://rpc.nimiqwatch.com");
+
+// Nimiq caps a transaction's recipient data (the memo) at 64 bytes; anything
+// longer fails consensus verification with "Overflow".
+export const NIM_MAX_TX_DATA_BYTES = 64;
+
+// Proof attempts per stake. Mirrors MAX_PROOF_ATTEMPTS in lib/proof-intake.ts,
+// which is the server-side authority.
+export const MAX_PROOF_ATTEMPTS = 3;

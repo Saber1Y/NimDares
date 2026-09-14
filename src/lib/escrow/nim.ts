@@ -1,8 +1,10 @@
 "server-only";
 
-import { Address, KeyPair, PrivateKey, TransactionBuilder } from "@nimiq/core";
+import { Address, KeyPair, PrivateKey, Transaction, TransactionBuilder } from "@nimiq/core";
 
 export type NimNetwork = "mainnet" | "testnet";
+
+const stripSpaces = (address: string) => address.replace(/\s+/g, "");
 
 const NIMIQ_NETWORK: NimNetwork =
   (process.env.NIMIQ_NETWORK ?? "mainnet").toLowerCase() === "testnet" ? "testnet" : "mainnet";
@@ -29,7 +31,8 @@ function escrowKeyPair(seed: string): KeyPair {
 }
 
 interface RpcResponse<T> {
-  result?: { data?: T };
+  // Albatross wraps every payload as { data, metadata }.
+  result?: { data?: T; metadata?: unknown } | T;
   error?: { message?: string; data?: string };
 }
 
@@ -44,7 +47,11 @@ async function nimRpc<T>(method: string, params: unknown[], rpcUrl: string): Pro
   if (!res.ok) throw new Error(`NIM RPC ${method} ${res.status}`);
   const payload = (await res.json()) as RpcResponse<T>;
   if (payload.error) throw new Error(`NIM RPC ${method}: ${payload.error.message ?? payload.error.data}`);
-  return payload.result!.data!;
+  const result = payload.result;
+  if (result && typeof result === "object" && "data" in result) {
+    return (result as { data: T }).data;
+  }
+  return result as T;
 }
 
 export interface NimEscrowInfo {
@@ -127,10 +134,58 @@ export async function buildNimSweepTx(
 
 export async function fetchNimBalance(address: string): Promise<bigint> {
   const rpc = process.env.NIM_RPC_URL ?? DEFAULT_RPC;
-  const account = await nimRpc<{ balance: number | string }>("getAccountByAddress", [address], rpc).catch(() => ({ balance: 0 }));
+  const account = await nimRpc<{ balance: number | string }>(
+    "getAccountByAddress",
+    [stripSpaces(address)],
+    rpc,
+  ).catch(() => ({ balance: 0 }));
   const balance = account.balance ?? "0";
   const raw = typeof balance === "number" ? balance.toString() : balance;
   return BigInt(raw.length > 0 ? raw : "0");
+}
+
+const TX_HASH_RE = /^[0-9a-f]{64}$/i;
+
+/**
+ * Nimiq Pay returns either a transaction hash or the serialized transaction,
+ * depending on host version. Both resolve to the hash used to look it up.
+ */
+export function nimTxHashFromRef(ref: string): string | null {
+  const clean = ref.trim().replace(/^0x/i, "");
+  if (TX_HASH_RE.test(clean)) return clean.toLowerCase();
+  if (clean.length === 0 || clean.length % 2 !== 0 || !/^[0-9a-f]+$/i.test(clean)) return null;
+  try {
+    return Transaction.deserialize(Uint8Array.from(Buffer.from(clean, "hex"))).hash();
+  } catch {
+    return null;
+  }
+}
+
+export interface NimTx {
+  hash: string;
+  fromAddress: string;
+  toAddress: string;
+  value: bigint;
+  memo: string | null;
+  executionOk: boolean;
+}
+
+/** Returns null when the transaction is not in the chain (yet) or the RPC is unreachable. */
+export async function fetchNimTxByHash(hash: string): Promise<NimTx | null> {
+  const rpc = process.env.NIM_RPC_URL ?? DEFAULT_RPC;
+  try {
+    const tx = await nimRpc<NimRpcTx>("getTransactionByHash", [hash], rpc);
+    return {
+      hash: tx.hash,
+      fromAddress: tx.from,
+      toAddress: tx.to,
+      value: BigInt(tx.value),
+      memo: parseMemo(tx.recipientData) ?? parseMemo(tx.senderData),
+      executionOk: tx.executionResult !== false,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export interface NimIncomingTx {
@@ -147,16 +202,16 @@ interface NimRpcTx {
   value: number | string;
   senderData?: string;
   recipientData?: string;
+  executionResult?: boolean;
 }
-
-const stripSpaces = (address: string) => address.replace(/\s+/g, "");
 
 export async function fetchNimIncomingTxs(address: string): Promise<NimIncomingTx[]> {
   const rpc = process.env.NIM_RPC_URL ?? DEFAULT_RPC;
   const addr = stripSpaces(address);
   const txs = await nimRpc<NimRpcTx[]>("getTransactionsByAddress", [addr, 100, null], rpc);
   return txs
-    .filter((t) => stripSpaces(t.to) === addr)
+    // A transaction that failed execution moved no funds.
+    .filter((t) => stripSpaces(t.to) === addr && t.executionResult !== false)
     .map((t) => ({
       hash: t.hash,
       fromAddress: t.from,

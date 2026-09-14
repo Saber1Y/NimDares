@@ -44,10 +44,12 @@ export async function POST(req: NextRequest) {
     for (const tx of txs) {
       if (!tx.memo) continue;
       const parts = tx.memo.split(":");
-      if (parts.length !== 3 || parts[0] !== "nimdares") continue;
-      const [, dareId, participantId] = parts;
+      if (parts.length < 2 || parts[0] !== "nimdares") continue;
+      // Memos carry a single seat reference: `nimdares:<participantId>`.
+      const participantId = parts[parts.length - 1];
       const participant = await store.getParticipant(participantId);
-      if (!participant || participant.dareId !== dareId) continue;
+      if (!participant) continue;
+      const dareId = participant.dareId;
       if (participant.fundedAt) continue;
       if (participant.stakeRaw !== tx.value) continue;
       await store.updateParticipant(participantId, {

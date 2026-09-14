@@ -2,6 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { getStore } from "@/lib/db";
 import { authenticate } from "@/lib/verify";
 import { dareToClient } from "@/lib/serialize";
+import { adjudicateDare } from "@/lib/adjudicate";
+import {
+  MAX_PROOF_ATTEMPTS,
+  canResubmit,
+  gateProofImage,
+  verdictToRecord,
+} from "@/lib/proof-intake";
+import { settleSoloWin } from "@/lib/settle";
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
@@ -30,11 +38,45 @@ export async function POST(
   if (dare.ownerAddress !== auth.address) {
     return NextResponse.json({ ok: false, error: "not your dare" }, { status: 403 });
   }
-  if (dare.status !== "ACTIVE" && dare.status !== "PENDING_FUNDING") {
+  if (dare.maxCapacity > 1) {
+    return NextResponse.json(
+      { ok: false, error: "this is a room; submit proof for your seat" },
+      { status: 409 }
+    );
+  }
+  const priorVerdict = dare.verifierResult?.status;
+  const isReplacement = dare.status === "SUBMITTED";
+  // A submitted proof can be replaced while the ruling is not VALID, attempts
+  // remain, and the deadline has not passed.
+  if (isReplacement && !canResubmit(dare, dare.proofAttempts, priorVerdict)) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          priorVerdict === "VALID"
+            ? "this dare has already been ruled valid"
+            : `no proof attempts left (limit ${MAX_PROOF_ATTEMPTS})`,
+      },
+      { status: 409 }
+    );
+  }
+  // A stake that was never deposited cannot be proven: the sweep pays a VALID
+  // ruling out of escrow, so an unfunded dare would be paid with other people's
+  // deposits.
+  if (!dare.fundedAt) {
+    return NextResponse.json(
+      { ok: false, error: "fund the dare before submitting proof" },
+      { status: 409 }
+    );
+  }
+  if (!isReplacement && dare.status !== "ACTIVE") {
     return NextResponse.json(
       { ok: false, error: `cannot submit proof in state ${dare.status}` },
       { status: 409 }
     );
+  }
+  if (new Date(dare.deadline).getTime() <= Date.now()) {
+    return NextResponse.json({ ok: false, error: "the deadline has passed" }, { status: 409 });
   }
 
   const body = (await req.json().catch(() => null)) as {
@@ -60,15 +102,70 @@ export async function POST(
     );
   }
 
-  const updated = await store.updateDare(id, {
+  let proofHash: string | null = null;
+  if (proofImage) {
+    const gate = await gateProofImage(proofImage, dare.proofAttempts, { dareId: dare.id });
+    if (!gate.ok) {
+      return NextResponse.json({ ok: false, error: gate.error }, { status: gate.httpStatus ?? 400 });
+    }
+    proofHash = gate.hash ?? null;
+  }
+
+  const attempts = dare.proofAttempts + 1;
+  const submitted = await store.updateDare(id, {
     proofImageUrl: proofImage ?? null,
+    proofHash,
+    proofAttempts: attempts,
     verifierLink: dare.verifierLink ?? proofLink ?? null,
     status: "SUBMITTED",
     verifierResult: { status: "WAITING", reason: "queued for adjudication" },
   });
 
+  // Judge now rather than at the deadline, so a rejected or inconclusive proof
+  // can still be replaced while the dare is open.
+  const verdict = await adjudicateDare(submitted ?? dare);
+  if (verdict.status === "UNAVAILABLE") {
+    // The verifier was offline: do not spend the attempt, and let the sweep
+    // rule at the deadline.
+    const held = await store.updateDare(id, {
+      proofAttempts: dare.proofAttempts,
+      verifierResult: { status: "UNAVAILABLE", reason: verdict.reason, source: verdict.source },
+    });
+    return NextResponse.json(
+      {
+        ok: true,
+        verdict: "UNAVAILABLE",
+        reason: verdict.reason,
+        attemptsLeft: MAX_PROOF_ATTEMPTS - dare.proofAttempts,
+        dare: held ? dareToClient(held) : null,
+        store: store.label,
+      },
+      { status: 201 }
+    );
+  }
+
+  await store.updateDare(id, { verifierResult: verdictToRecord(verdict) });
+
+  // A verified solo dare settles immediately: the stake goes back as soon as
+  // the proof stands up, with no wait for the deadline.
+  let payout: { status: string; txHash?: string; reason?: string } | null = null;
+  if (verdict.status === "VALID") {
+    payout = await settleSoloWin(id);
+  }
+
+  const ruled = await store.getDare(id);
   return NextResponse.json(
-    { ok: true, dare: updated ? dareToClient(updated) : null, store: store.label },
+    {
+      ok: true,
+      verdict: verdict.status,
+      reason: verdict.reason,
+      confidence: verdict.confidence,
+      observations: verdict.observations,
+      attemptsLeft: verdict.status === "VALID" ? 0 : MAX_PROOF_ATTEMPTS - attempts,
+      payout: payout ? { status: payout.status, txHash: payout.txHash, reason: payout.reason } : null,
+      dare: ruled ? dareToClient(ruled) : null,
+      store: store.label,
+    },
     { status: 201 }
   );
 }

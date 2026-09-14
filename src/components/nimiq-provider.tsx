@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { init, type NimiqProvider, type SignatureResult } from "@nimiq/mini-app-sdk";
+import { NIM_DECIMALS, NIM_RPC_URL } from "@/lib/config";
 
 export type WalletStatus =
   | "initializing"
@@ -32,7 +33,9 @@ interface WalletState {
     recipient: string,
     valueLuna: number,
     memo: string
-  ) => Promise<{ ok: boolean; error?: string }>;
+  ) => Promise<{ ok: boolean; txRef?: string; error?: string }>;
+  /** Spendable NIM for the connected account, or null when it cannot be read. */
+  getBalance: () => Promise<number | null>;
   connect: () => Promise<void>;
 }
 
@@ -53,6 +56,9 @@ export function NimiqWalletProvider({ children }: { children: ReactNode }) {
     try {
       setStatus("initializing");
       const prov = await init({ timeout: 10_000 });
+      // The wallet only handles account/sign/send methods; anything else the
+      // SDK forwards to this RPC, which is how balances are read.
+      prov.setRPCUrl(NIM_RPC_URL);
       setProvider(prov);
       setNetwork(prov.getNetwork());
       const res = await prov.listAccounts();
@@ -105,7 +111,7 @@ export function NimiqWalletProvider({ children }: { children: ReactNode }) {
       recipient: string,
       valueLuna: number,
       memo: string
-    ): Promise<{ ok: boolean; error?: string }> => {
+    ): Promise<{ ok: boolean; txRef?: string; error?: string }> => {
       if (!provider) return { ok: false, error: "wallet not connected" };
       setStatus("signing");
       try {
@@ -123,7 +129,9 @@ export function NimiqWalletProvider({ children }: { children: ReactNode }) {
           return { ok: false, error: res.error.message };
         }
         setError(null);
-        return { ok: true };
+        // Hosts return either the transaction hash or the serialized
+        // transaction; the server resolves both to a hash.
+        return { ok: true, txRef: typeof res === "string" ? res : undefined };
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         setError(msg);
@@ -135,6 +143,27 @@ export function NimiqWalletProvider({ children }: { children: ReactNode }) {
     [provider]
   );
 
+  const getBalance = useCallback(async (): Promise<number | null> => {
+    const address = accounts[0];
+    if (!provider || !address) return null;
+    try {
+      // The SDK's RPC client unwraps the Albatross `{ data, metadata }` envelope,
+      // so this resolves to the account record itself. Balance is in Luna.
+      const account = await provider.request<{ balance?: number | string } | null>({
+        method: "getAccountByAddress",
+        params: [address],
+      });
+      const luna = account?.balance;
+      if (luna === undefined || luna === null) return null;
+      const nim = Number(luna) / NIM_DECIMALS;
+      return Number.isFinite(nim) ? nim : null;
+    } catch (e) {
+      // A balance we cannot read must not be reported as zero.
+      console.warn("getBalance failed", e);
+      return null;
+    }
+  }, [provider, accounts]);
+
   const value = useMemo<WalletState>(
     () => ({
       status,
@@ -145,9 +174,10 @@ export function NimiqWalletProvider({ children }: { children: ReactNode }) {
       error,
       signMessage,
       sendPayTransaction,
+      getBalance,
       connect,
     }),
-    [status, provider, accounts, network, error, signMessage, sendPayTransaction, connect]
+    [status, provider, accounts, network, error, signMessage, sendPayTransaction, getBalance, connect]
   );
 
   return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;

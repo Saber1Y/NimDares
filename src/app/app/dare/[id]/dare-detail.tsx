@@ -8,7 +8,6 @@ import {
   ImageIcon,
   GitBranch,
   Bike,
-  CircleAlert,
   Check,
   ScanLine,
   Swords,
@@ -16,12 +15,15 @@ import {
   Users,
   KeyRound,
   Coins,
+  Loader2,
 } from "lucide-react";
 import { useNimiqWallet, isErrorResponse } from "@/components/nimiq-provider";
 import { HudPanel } from "@/components/ui/hud-panel";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import type { Dare, Participant } from "@/lib/types";
+import { NIM_MAX_TX_DATA_BYTES, MAX_PROOF_ATTEMPTS } from "@/lib/config";
 
 type SubmitState =
   | { phase: "idle"; error: string | null }
@@ -55,6 +57,40 @@ function memoHex(memo: string): string {
   return Array.from(new TextEncoder().encode(memo))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
+}
+
+interface ProofOutcome {
+  verdict?: string;
+  reason?: string;
+  attemptsLeft?: number;
+  payout?: { status?: string; txHash?: string } | null;
+}
+
+/** Turns a ruling into one line the user can act on. */
+function proofMessage(data: ProofOutcome, pooled: boolean): string {
+  const left =
+    typeof data.attemptsLeft === "number" && data.attemptsLeft > 0 && data.verdict !== "VALID"
+      ? ` ${data.attemptsLeft} ${data.attemptsLeft === 1 ? "attempt" : "attempts"} left.`
+      : "";
+  switch (data.verdict) {
+    case "VALID":
+      if (pooled) return "verified - your share is paid when the dare ends";
+      return data.payout?.status === "SETTLED"
+        ? "verified - your stake has been returned"
+        : "verified - returning your stake";
+    case "AMBIGUOUS":
+      return `inconclusive: ${data.reason ?? "the judge could not tell"}${left}`;
+    case "INVALID":
+      return `rejected: ${data.reason ?? "the proof did not hold up"}${left}`;
+    case "UNAVAILABLE":
+      return "the judge is offline; your proof is stored and will be ruled on later";
+    default:
+      return "proof submitted";
+  }
+}
+
+function isPastDeadline(iso: string): boolean {
+  return new Date(iso).getTime() <= Date.now();
 }
 
 function shortAddr(a: string): string {
@@ -143,8 +179,37 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
 
   if (!dare) {
     return (
-      <div className="mx-auto flex max-w-2xl flex-col items-center gap-6 py-24 text-center">
-        <p className="font-mono text-sm text-muted-foreground">&gt; reading ledger…</p>
+      <div className="flex flex-col gap-6">
+        <div className="flex items-center gap-3">
+          <Skeleton className="size-10 rounded-xl" />
+          <Skeleton className="h-8 w-48" />
+          <Skeleton className="h-5 w-20 rounded-full" />
+        </div>
+        <HudPanel label="Details" icon={<Swords className="size-3.5" />}>
+          <div className="flex flex-col gap-4">
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-3/4" />
+            <div className="grid gap-4 pt-4 md:grid-cols-3">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="border-t border-border pt-3">
+                  <Skeleton className="h-3 w-16" />
+                  <Skeleton className="mt-2 h-5 w-24" />
+                </div>
+              ))}
+            </div>
+          </div>
+        </HudPanel>
+        <HudPanel label="Funding" icon={<Coins className="size-3.5" />}>
+          <div className="flex flex-col gap-4">
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-12 w-full rounded-xl" />
+            <Skeleton className="h-10 w-40" />
+          </div>
+        </HudPanel>
+        <HudPanel label="Acceptance criteria" icon={<ScanLine className="size-3.5" />}>
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="mt-2 h-4 w-2/3" />
+        </HudPanel>
       </div>
     );
   }
@@ -152,12 +217,19 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
   const cur = dare;
   const isRoom = cur.maxCapacity > 1;
   const mySeat = isRoom ? participants.find((p) => p.userAddress === wallet.address) ?? null : null;
+  const attemptsUsed = isRoom ? (mySeat?.proofAttempts ?? 0) : cur.proofAttempts;
+  const ruledValid = isRoom
+    ? mySeat?.aiVerdict === "VALID"
+    : cur.verifierResult?.status === "VALID";
+  const attemptsLeft = ruledValid ? 0 : Math.max(0, MAX_PROOF_ATTEMPTS - attemptsUsed);
+  const pastDeadline = isPastDeadline(cur.deadline);
   const roomOpen = cur.status === "LOBBY" || cur.status === "ACTIVE";
   const canJoin =
     isRoom &&
     roomOpen &&
     !mySeat &&
     participants.length < cur.maxCapacity &&
+    // eslint-disable-next-line react-hooks/purity -- deadline comparison is stable per render
     new Date(cur.deadline).getTime() > Date.now();
 
   const tone =
@@ -182,32 +254,76 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
       setFunding({ phase: "idle" });
       return;
     }
+    // Reference the escrow scanner resolves the stake from; stays inside the
+    // 64-byte recipient-data cap.
+    const memo = `nimdares:${isRoom && mySeat ? mySeat.id : cur.id}`;
+    if (new TextEncoder().encode(memo).length > NIM_MAX_TX_DATA_BYTES) {
+      setSubmit({ phase: "idle", error: "funding reference is too long for a Nimiq transaction" });
+      return;
+    }
+
+    // Signed first so the payment dialog is the last thing the user confirms.
+    const message = `nimdares:fund:${cur.id}:${Date.now()}`;
+    const sig = await wallet.signMessage(message);
+    if (!sig) {
+      setSubmit({ phase: "idle", error: "funding rejected: signature was declined" });
+      return;
+    }
+    const authHeader = `Nimiq ${sig.publicKey}:${sig.signature}:${base64UrlEncode(message)}`;
+
     setFunding({ phase: "sending", serialized: null });
+    let txRef: string | null = null;
     try {
       const valueLuna = Math.round(cur.amount * 100_000);
       const feeLuna = Math.round(valueLuna / 1000) + 100;
       const height = await wallet.provider.getBlockNumber();
-      const result =
-        isRoom && mySeat
-          ? await wallet.provider.sendBasicTransactionWithData({
-              recipient: recip,
-              value: valueLuna,
-              fee: feeLuna,
-              data: memoHex(`nimdares:${cur.id}:${mySeat.id}`),
-              validityStartHeight: height,
-            })
-          : await wallet.provider.sendBasicTransaction({
-              recipient: recip,
-              value: valueLuna,
-              fee: feeLuna,
-              validityStartHeight: height,
-            });
+      const result = await wallet.provider.sendBasicTransactionWithData({
+        recipient: recip,
+        value: valueLuna,
+        fee: feeLuna,
+        data: memoHex(memo),
+        validityStartHeight: height,
+      });
       if (isErrorResponse(result)) {
+        // Declined in Nimiq Pay: the stake simply stays unfunded.
         setFunding({ phase: "idle" });
         setSubmit({ phase: "idle", error: `funding rejected: ${result.error.message}` });
         return;
       }
-      setFunding({ phase: "sending", serialized: typeof result === "string" ? result : null });
+      txRef = typeof result === "string" ? result : null;
+      setFunding({ phase: "sending", serialized: txRef });
+    } catch (e) {
+      setFunding({ phase: "idle" });
+      setSubmit({ phase: "idle", error: e instanceof Error ? e.message : String(e) });
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/dares/${cur.id}/fund`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: authHeader },
+        body: JSON.stringify({
+          asset: "NIM",
+          txRef: txRef ?? undefined,
+          participantId: isRoom && mySeat ? mySeat.id : undefined,
+        }),
+      });
+      const data = (await res.json()) as { ok?: boolean; status?: string; error?: string };
+      setFunding({ phase: "idle" });
+      if (!res.ok || !data.ok) {
+        setSubmit({ phase: "idle", error: data.error ?? "could not confirm the escrow deposit" });
+        return;
+      }
+      if (data.status === "funded") {
+        setSubmit({ phase: "done", message: "stake is in escrow - the dare is live" });
+      } else {
+        // Broadcast but not in a block yet; the refresh loop settles it.
+        setSubmit({ phase: "done", message: "payment sent - confirming on the Nimiq network" });
+      }
+      const refresh = await fetch(`/api/dares/${cur.id}`, { cache: "no-store" });
+      const rd = await refresh.json();
+      if (rd.dare) setDare(rd.dare as Dare);
+      if (Array.isArray(rd.participants)) setParticipants(rd.participants);
     } catch (e) {
       setFunding({ phase: "idle" });
       setSubmit({ phase: "idle", error: e instanceof Error ? e.message : String(e) });
@@ -289,7 +405,7 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
         setSubmit({ phase: "idle", error: data?.error ?? `HTTP ${res.status}` });
         return;
       }
-      setSubmit({ phase: "done", message: data.message ?? "proof submitted" });
+      setSubmit({ phase: "done", message: proofMessage(data, false) });
       if (data.dare) setDare(data.dare);
     } catch (e) {
       setSubmit({ phase: "idle", error: e instanceof Error ? e.message : String(e) });
@@ -334,7 +450,7 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
         setSubmit({ phase: "idle", error: data?.error ?? `HTTP ${res.status}` });
         return;
       }
-      setSubmit({ phase: "done", message: data.message ?? "proof submitted" });
+      setSubmit({ phase: "done", message: proofMessage(data, true) });
       const refresh = await fetch(`/api/dares/${cur.id}`, { cache: "no-store" });
       const rd = await refresh.json();
       if (Array.isArray(rd.participants)) setParticipants(rd.participants);
@@ -363,6 +479,7 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
 
   const escrowShown =
     cur.status === "PENDING_FUNDING" && (cur.ownerAddress === wallet.address || wallet.status !== "ready");
+  const isConfirming = cur.status === "PENDING_FUNDING" && cur.funded === false;
   const seatNeedsFunds = mySeat && !mySeat.funded && roomOpen && cur.escrow;
 
   const seatTone = (p: Participant) =>
@@ -464,7 +581,16 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
                       {p.aiVerdict !== "WAITING" && (
-                        <StatusPill label={p.aiVerdict} tone={p.aiVerdict === "VALID" ? "success" : "failed"} />
+                        <StatusPill
+                          label={p.aiVerdict}
+                          tone={
+                            p.aiVerdict === "VALID"
+                              ? "success"
+                              : p.aiVerdict === "INVALID"
+                                ? "failed"
+                                : "neutral"
+                          }
+                        />
                       )}
                       <StatusPill
                         label={p.funded ? "FUNDED" : p.proofImageUrl || p.proofLink ? "PROOF IN" : "UNFUNDED"}
@@ -508,8 +634,16 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
         >
-          <HudPanel label="Funding" icon={<Coins className="size-3.5" />} badge="PENDING">
+          <HudPanel label="Funding" icon={<Coins className="size-3.5" />} badge={isConfirming ? "CONFIRMING" : "PENDING"}>
             <div className="flex flex-col gap-4">
+              {isConfirming && (
+                <div className="flex items-start gap-3 rounded-2xl border border-primary/30 bg-primary/5 px-5 py-4">
+                  <Loader2 className="mt-0.5 size-5 shrink-0 text-primary animate-spin" />
+                  <p className="text-sm leading-relaxed text-foreground">
+                    Payment sent. Confirming on the Nimiq network. The dare goes live once the deposit is seen in escrow.
+                  </p>
+                </div>
+              )}
               <p className="text-sm leading-relaxed text-muted-foreground">
                 {isRoom ? (
                   <>
@@ -546,7 +680,7 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
               {isRoom && mySeat && (
                 <div className="flex items-center gap-3 rounded-xl border border-border bg-muted/20 px-4 py-3">
                   <p className="flex-1 break-all font-mono text-xs text-muted-foreground">
-                    memo: <span className="text-primary">nimdares:{cur.id}:{mySeat.id}</span>
+                    memo: <span className="text-primary">nimdares:{mySeat.id}</span>
                   </p>
                 </div>
               )}
@@ -605,6 +739,33 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
             <p className="font-mono text-sm leading-relaxed text-foreground">
               {cur.verifierResult.reason}
             </p>
+            {typeof cur.verifierResult.confidence === "number" && (
+              <p className="mt-3 font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
+                completion score:{" "}
+                <span className="text-primary">{cur.verifierResult.confidence}/100</span>
+                {cur.verifierResult.source ? ` · ${cur.verifierResult.source}` : ""}
+              </p>
+            )}
+            {cur.verifierResult.observations && (
+              <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                observed: {cur.verifierResult.observations}
+              </p>
+            )}
+            {cur.verifierResult.status === "AMBIGUOUS" && (
+              <p className="mt-3 text-xs leading-relaxed text-amber-300">
+                Inconclusive. Your stake is returned if the deadline passes on
+                this ruling
+                {attemptsLeft > 0
+                  ? ` - you can still submit a clearer screenshot (${attemptsLeft} ${attemptsLeft === 1 ? "attempt" : "attempts"} left).`
+                  : "."}
+              </p>
+            )}
+            {cur.verifierResult.status === "INVALID" && attemptsLeft > 0 && (
+              <p className="mt-3 text-xs leading-relaxed text-amber-300">
+                {attemptsLeft} {attemptsLeft === 1 ? "attempt" : "attempts"} left
+                - you can submit a different screenshot before the deadline.
+              </p>
+            )}
             {cur.payoutStatus && (
               <p className="mt-4 font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
                 payout: <span className="text-primary">{cur.payoutStatus}</span>
@@ -616,7 +777,10 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
       )}
 
       {/* proof submission */}
-      {(cur.status === "ACTIVE" || cur.status === "PENDING_FUNDING") && !isRoom && (
+      {(cur.status === "ACTIVE" ||
+        cur.status === "PENDING_FUNDING" ||
+        (cur.status === "SUBMITTED" && attemptsLeft > 0 && !pastDeadline)) &&
+        !isRoom && (
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
@@ -627,9 +791,30 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
               {cur.verifierKind === "VISION" ? (
                 <>
                   <p className="text-sm leading-relaxed text-muted-foreground">
-                    Attach the evidence screenshot. The AI judge checks it against the
-                    acceptance criteria once the deadline passes.
+                    Attach the evidence screenshot before the deadline. The AI
+                    judge rules on it straight away, so you can replace it while
+                    the dare is open.
+                    {isRoom
+                      ? " Shares are paid out when the dare ends."
+                      : " A verified proof returns your stake immediately."}
+                    {attemptsLeft > 0 &&
+                      ` ${attemptsLeft} of ${MAX_PROOF_ATTEMPTS} ${attemptsLeft === 1 ? "attempt" : "attempts"} left.`}
                   </p>
+                  {cur.evidenceSpec && (
+                    <div className="rounded-xl border border-border bg-muted/20 px-4 py-3">
+                      <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                        Your screenshot must show
+                      </p>
+                      <ul className="mt-2 flex flex-col gap-1.5">
+                        {cur.evidenceSpec.requirements.map((r, i) => (
+                          <li key={i} className="flex gap-2 text-xs leading-relaxed text-foreground/80">
+                            <span className="text-primary">{i + 1}.</span>
+                            <span>{r}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                   <input
                     ref={fileRef}
                     type="file"
@@ -683,7 +868,7 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
       )}
 
       {/* room seat proof */}
-      {isRoom && mySeat && (cur.status === "LOBBY" || cur.status === "ACTIVE") && (
+      {isRoom && mySeat && !pastDeadline && (cur.status === "LOBBY" || cur.status === "ACTIVE") && (
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
@@ -703,9 +888,30 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
               ) : cur.verifierKind === "VISION" ? (
                 <>
                   <p className="text-sm leading-relaxed text-muted-foreground">
-                    Attach the evidence screenshot. The AI judge checks it against the
-                    acceptance criteria once the deadline passes.
+                    Attach the evidence screenshot before the deadline. The AI
+                    judge rules on it straight away, so you can replace it while
+                    the dare is open.
+                    {isRoom
+                      ? " Shares are paid out when the dare ends."
+                      : " A verified proof returns your stake immediately."}
+                    {attemptsLeft > 0 &&
+                      ` ${attemptsLeft} of ${MAX_PROOF_ATTEMPTS} ${attemptsLeft === 1 ? "attempt" : "attempts"} left.`}
                   </p>
+                  {cur.evidenceSpec && (
+                    <div className="rounded-xl border border-border bg-muted/20 px-4 py-3">
+                      <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                        Your screenshot must show
+                      </p>
+                      <ul className="mt-2 flex flex-col gap-1.5">
+                        {cur.evidenceSpec.requirements.map((r, i) => (
+                          <li key={i} className="flex gap-2 text-xs leading-relaxed text-foreground/80">
+                            <span className="text-primary">{i + 1}.</span>
+                            <span>{r}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                   <input
                     ref={fileRef}
                     type="file"

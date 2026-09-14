@@ -2,51 +2,76 @@ import { NextRequest, NextResponse } from "next/server";
 import { getStore } from "@/lib/db";
 import { adjudicateDare } from "@/lib/adjudicate";
 import { payoutDare, settleRoom } from "@/lib/payout";
-import { getNimEscrowInfo, getNimCharityAddress, fetchNimBalance } from "@/lib/escrow/nim";
-import { getEvmEscrowInfo, fetchUsdtBalance } from "@/lib/escrow/evm";
+import { verdictToRecord } from "@/lib/proof-intake";
+import { confirmNimFunding } from "@/lib/escrow/confirm";
+import { retrySoloPayout, settleSoloWin } from "@/lib/settle";
+import type { AdjudicationResult } from "@/lib/adjudicate";
+import { getNimEscrowInfo, getNimCharityAddress } from "@/lib/escrow/nim";
 
+/** Cap on settlement checks per sweep, so one run cannot storm the public RPC. */
+const MAX_FUNDING_CHECKS = 25;
+
+/**
+ * Settles deposits that were never confirmed interactively - a manual transfer
+ * to the escrow address, or a payment whose confirmation call never landed.
+ * Each one is verified against the chain; escrow holding enough balance proves
+ * nothing about who paid for which dare.
+ */
 async function fundPendingDares() {
   const store = getStore();
   const nimEscrow = getNimEscrowInfo();
-  const evmEscrow = getEvmEscrowInfo();
-  if (!nimEscrow.configured && !evmEscrow.configured) return { funded: 0, skipped: 1 };
+  if (!nimEscrow.configured) return { funded: 0, skipped: 1 };
 
-  const pending = (await store.listDares()).filter((d) => d.status === "PENDING_FUNDING");
-  if (pending.length === 0) return { funded: 0, skipped: 0 };
-
-  const nimPending = pending.filter((d) => d.asset === "NIM");
-  const usdtPending = pending.filter((d) => d.asset === "USDT");
-  let nimAvailable = 0n;
-  let usdtAvailable = 0n;
-  if (nimPending.length && nimEscrow.configured) {
-    nimAvailable = await fetchNimBalance(nimEscrow.address);
-  }
-  if (usdtPending.length && evmEscrow.configured) {
-    usdtAvailable = await fetchUsdtBalance(evmEscrow.address);
-  }
-
+  const pending = (await store.listDares()).filter(
+    (d) => d.asset === "NIM" && (d.status === "PENDING_FUNDING" || d.status === "LOBBY"),
+  );
   let funded = 0;
-  for (const d of nimPending) {
-    if (nimAvailable >= d.amountRaw) {
-      nimAvailable -= d.amountRaw;
-      await store.updateDare(d.id, { status: "ACTIVE", fundedAt: new Date() });
-      funded += 1;
+  let skipped = 0;
+  let checks = 0;
+
+  for (const dare of pending) {
+    if (checks >= MAX_FUNDING_CHECKS) {
+      skipped += 1;
+      continue;
     }
-  }
-  for (const d of usdtPending) {
-    if (usdtAvailable >= d.amountRaw) {
-      usdtAvailable -= d.amountRaw;
-      await store.updateDare(d.id, { status: "ACTIVE", fundedAt: new Date() });
-      funded += 1;
+    if (dare.maxCapacity > 1) {
+      const seats = (await store.listParticipants(dare.id)).filter((p) => !p.fundedAt);
+      for (const seat of seats) {
+        if (checks >= MAX_FUNDING_CHECKS) {
+          skipped += 1;
+          break;
+        }
+        checks += 1;
+        const res = await confirmNimFunding(dare.id, { participantId: seat.id });
+        if (res.status === "funded") funded += 1;
+      }
+      continue;
     }
+    checks += 1;
+    const res = await confirmNimFunding(dare.id);
+    if (res.status === "funded") funded += 1;
   }
-  return { funded, skipped: 0 };
+
+  return { funded, skipped };
+}
+
+
+/**
+ * Scheduled runners issue a GET with `Authorization: Bearer $CRON_SECRET`;
+ * manual calls use POST with the x-cron-secret header. Both land here.
+ */
+export async function GET(req: NextRequest) {
+  return POST(req);
 }
 
 export async function POST(req: NextRequest) {
   const secret = process.env.CRON_SECRET;
-  if (secret && req.headers.get("x-cron-secret") !== secret) {
-    return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
+  if (secret) {
+    const header = req.headers.get("x-cron-secret");
+    const bearer = req.headers.get("authorization");
+    if (header !== secret && bearer !== `Bearer ${secret}`) {
+      return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
+    }
   }
 
   const store = getStore();
@@ -59,6 +84,10 @@ export async function POST(req: NextRequest) {
     lost_no_proof: 0,
     adjudicated_valid: 0,
     adjudicated_invalid: 0,
+    adjudicated_ambiguous: 0,
+    refunded: 0,
+    payouts_retried: 0,
+    pool_fee_raw: "0",
     unresolved_unavailable: 0,
     payouts_settled: 0,
     payouts_pending: 0,
@@ -76,6 +105,15 @@ export async function POST(req: NextRequest) {
   stats.scanned = dares.length;
 
   for (const dare of dares) {
+    // A solo dare paid out on verification can still have a failed transfer;
+    // nothing else in this loop would ever look at it again.
+    const retried = await retrySoloPayout(dare);
+    if (retried) {
+      if (retried.status === "SETTLED") stats.payouts_retried += 1;
+      else stats.payouts_failed += 1;
+      continue;
+    }
+
     const isFundedPreState = dare.status === "ACTIVE" || dare.status === "SUBMITTED";
     if (!isFundedPreState) {
       // Unfunded (Solo: PENDING_FUNDING, Room: LOBBY) dares expire as VOIDED once the deadline passes.
@@ -120,8 +158,10 @@ export async function POST(req: NextRequest) {
         await store.updateParticipant(p.id, {
           aiVerdict: verdict.status,
           verdictReason: verdict.reason,
+          confidence: verdict.confidence ?? null,
         });
         if (verdict.status === "VALID") stats.adjudicated_valid += 1;
+        else if (verdict.status === "AMBIGUOUS") stats.adjudicated_ambiguous += 1;
         else stats.adjudicated_invalid += 1;
       }
       if (unavailable) {
@@ -139,7 +179,7 @@ export async function POST(req: NextRequest) {
         const status = payout.status;
         if (status === "SETTLED") settledCount += 1;
         else if (status === "PENDING") pendingCount += 1;
-        if (payout.participantId === "treasury") {
+        if (!settled.some((seat) => seat.id === payout.participantId)) {
           await store.recordTx({
             dareId: dare.id,
             kind: "SLASH_POOL",
@@ -171,6 +211,7 @@ export async function POST(req: NextRequest) {
         });
       }
       await store.updateDare(dare.id, { status: "SETTLED" });
+      stats.pool_fee_raw = (BigInt(stats.pool_fee_raw) + result.feeRaw).toString();
       stats.payouts_settled += settledCount;
       stats.payouts_pending += pendingCount;
       stats.rooms_settled += 1;
@@ -218,8 +259,20 @@ export async function POST(req: NextRequest) {
       continue;
     }
 
-    // SUBMITTED: run adjudication, then pay out or slash.
-    const verdict = await adjudicateDare(dare);
+    // SUBMITTED: proofs are judged when they are submitted, so a stored ruling
+    // is authoritative here. Only an unjudged or offline one is re-run.
+    const stored = dare.verifierResult;
+    const verdict: AdjudicationResult =
+      stored &&
+      (stored.status === "VALID" || stored.status === "INVALID" || stored.status === "AMBIGUOUS")
+        ? {
+            status: stored.status,
+            reason: stored.reason ?? "",
+            source: stored.source,
+            confidence: stored.confidence,
+            observations: stored.observations,
+          }
+        : await adjudicateDare(dare);
     if (verdict.status === "UNAVAILABLE") {
       stats.unresolved_unavailable += 1;
       await store.updateDare(dare.id, {
@@ -228,26 +281,47 @@ export async function POST(req: NextRequest) {
       continue;
     }
 
-    if (verdict.status === "VALID") {
+    if (verdict.status === "AMBIGUOUS") {
+      // The judge could not tell. Returning the stake is the only honest
+      // outcome: an inconclusive read must never take someone's money.
+      stats.adjudicated_ambiguous += 1;
       await store.updateDare(dare.id, {
-        status: "WON",
+        status: "VOIDED",
         payoutStatus: "PENDING",
-        verifierResult: { status: "VALID", reason: verdict.reason, source: verdict.source, ruledAt: new Date().toISOString() },
+        verifierResult: verdictToRecord(verdict),
       });
-      const payout = await payoutDare({ ...dare, status: "WON" });
-      if (payout.status === "SETTLED") {
-        await store.updateDare(dare.id, { payoutStatus: "SETTLED", payoutTxHash: payout.txHash });
-        stats.payouts_settled += 1;
-      } else {
-        await store.updateDare(dare.id, { payoutStatus: payout.status === "FAILED" ? "FAILED" : "PENDING" });
-        if (payout.status === "PENDING") stats.payouts_pending += 1;
-        else stats.payouts_failed += 1;
-      }
+      const refund = await payoutDare({ ...dare, status: "VOIDED" });
+      await store.updateDare(dare.id, {
+        payoutStatus: refund.status,
+        payoutTxHash: refund.txHash ?? null,
+      });
+      await store.recordTx({
+        dareId: dare.id,
+        kind: "PAYOUT",
+        chain,
+        asset: dare.asset,
+        amountRaw: dare.amountRaw,
+        toAddress: dare.ownerAddress,
+        txHash: refund.txHash ?? null,
+        status: refund.status === "SETTLED" ? "CONFIRMED" : "PENDING",
+      });
+      if (refund.status === "SETTLED") stats.refunded += 1;
+      else stats.payouts_pending += 1;
+      continue;
+    }
+
+    if (verdict.status === "VALID") {
+      await store.updateDare(dare.id, { verifierResult: verdictToRecord(verdict) });
+      const payout = await settleSoloWin(dare.id);
+      if (payout.status === "SETTLED") stats.payouts_settled += 1;
+      else if (payout.status === "PENDING") stats.payouts_pending += 1;
+      else stats.payouts_failed += 1;
+      stats.adjudicated_valid += 1;
     } else {
       await store.updateDare(dare.id, {
         status: "LOST",
         payoutStatus: null,
-        verifierResult: { status: "INVALID", reason: verdict.reason, source: verdict.source, ruledAt: new Date().toISOString() },
+        verifierResult: verdictToRecord(verdict),
       });
       await store.recordTx({ dareId: dare.id, kind: "SLASH_POOL", chain, asset: dare.asset, amountRaw: dare.amountRaw, status: "CONFIRMED" });
       stats.adjudicated_invalid += 1;
