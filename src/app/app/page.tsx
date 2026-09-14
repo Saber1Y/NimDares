@@ -33,7 +33,8 @@ type ReconcileState = { phase: "idle" } | { phase: "reconciling" } | { phase: "d
 type ModeFilter = "all" | "solo" | "team" | "arena";
 
 export default function Dashboard() {
-  const { status: walletStatus, address, network, error } = useNimiqWallet();
+  const { status: walletStatus, address, network, error, getBlockNumber } = useNimiqWallet();
+  const [hostBlock, setHostBlock] = useState<number | null>(null);
   const [api, setApi] = useState<ApiState>({
     status: "loading",
     dares: [],
@@ -79,6 +80,22 @@ export default function Dashboard() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (walletStatus !== "ready") return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const refresh = async () => {
+      const n = await getBlockNumber();
+      if (!cancelled) setHostBlock(n);
+    };
+    void refresh();
+    timer = setInterval(() => void refresh(), 10_000);
+    return () => {
+      cancelled = true;
+      if (timer) clearInterval(timer);
+    };
+  }, [walletStatus, getBlockNumber]);
 
   const runReconcile = useCallback(async () => {
     if (!address || walletStatus !== "ready") return;
@@ -217,6 +234,9 @@ export default function Dashboard() {
               <div className="border-t border-border pt-3">
                 <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Network</p>
                 <p className="mt-3 font-mono text-sm text-primary">{network ?? "nimiq"}</p>
+                <p className="mt-1 font-mono text-[11px] text-muted-foreground">
+                  {hostBlock !== null ? `chain head #${hostBlock.toLocaleString()}` : "reading chain head…"}
+                </p>
               </div>
               <div className="border-t border-border pt-3">
                 <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Account</p>
