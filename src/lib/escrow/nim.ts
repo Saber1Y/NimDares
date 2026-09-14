@@ -208,7 +208,10 @@ interface NimRpcTx {
 export async function fetchNimIncomingTxs(address: string): Promise<NimIncomingTx[]> {
   const rpc = process.env.NIM_RPC_URL ?? DEFAULT_RPC;
   const addr = stripSpaces(address);
-  const txs = await nimRpc<NimRpcTx[]>("getTransactionsByAddress", [addr, 100, null], rpc);
+  // nimWatch's getTransactionsByAddress takes the address as raw hex (20 bytes),
+  // while getAccountByAddress accepts the user-friendly NQ format.
+  const hexAddr = Address.fromUserFriendlyAddress(addr).toHex();
+  const txs = await nimRpc<NimRpcTx[]>("getTransactionsByAddress", [hexAddr, 100, null], rpc);
   return txs
     // A transaction that failed execution moved no funds.
     .filter((t) => stripSpaces(t.to) === addr && t.executionResult !== false)
