@@ -68,6 +68,18 @@ export const NIM_RPC_URL =
     ? "https://rpc.testnet.nimiqwatch.com"
     : "https://rpc.nimiqwatch.com");
 
+/** Resolves the RPC for the network the wallet is actually on. An explicit
+ *  NEXT_PUBLIC_NIM_RPC_URL override always wins; otherwise the network string
+ *  from the Pay host ("testnet"/"mainnet") picks the endpoint, so a wallet on
+ *  testnet never reads its balance from the mainnet RPC. */
+export function nimRpcUrlFor(network: string | null | undefined): string {
+  const override = process.env.NEXT_PUBLIC_NIM_RPC_URL;
+  if (override) return override;
+  return (network ?? "").toLowerCase().startsWith("test")
+    ? "https://rpc.testnet.nimiqwatch.com"
+    : "https://rpc.nimiqwatch.com";
+}
+
 // Nimiq caps a transaction's recipient data (the memo) at 64 bytes; anything
 // longer fails consensus verification with "Overflow".
 export const NIM_MAX_TX_DATA_BYTES = 64;
