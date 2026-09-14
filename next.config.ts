@@ -2,7 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   serverExternalPackages: ["@nimiq/core", "@prisma/client", "@prisma/adapter-pg"],
-  allowedDevOrigins: ["192.168.1.145"],
+  allowedDevOrigins: ["192.168.1.114", "192.168.1.137", "192.168.1.145"],
 };
 
 export default nextConfig;
