@@ -110,7 +110,28 @@ export default function CreateDare() {
   const [mode, setMode] = useState<RoomMode>("solo");
   const [capacity, setCapacity] = useState("5");
   const [state, setState] = useState<CreateState>({ phase: "idle" });
+  const [nimSnapshot, setNimSnapshot] = useState<Awaited<ReturnType<typeof wallet.getAccountSnapshot>>>(null);
+  const [nimSnapshotLoading, setNimSnapshotLoading] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (wallet.status !== "ready" || asset !== "NIM") return;
+    let cancelled = false;
+    const refresh = async () => {
+      setNimSnapshotLoading(true);
+      const snapshot = await wallet.getAccountSnapshot();
+      if (!cancelled) {
+        setNimSnapshot(snapshot);
+        setNimSnapshotLoading(false);
+      }
+    };
+    void refresh();
+    const interval = window.setInterval(() => void refresh(), 10_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [asset, wallet.getAccountSnapshot, wallet.status]);
 
   useEffect(() => {
     return () => {
@@ -749,6 +770,35 @@ export default function CreateDare() {
                 />
               </Field>
             </div>
+            {asset === "NIM" && (
+              <div className="rounded-xl border border-border/70 bg-black/20 px-4 py-3 font-mono text-[11px]">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <span className="text-muted-foreground">LIVE TESTNET ACCOUNT</span>
+                  <span className={nimSnapshot?.accountType === "basic" ? "text-primary" : "text-amber-300"}>
+                    {nimSnapshotLoading ? "reading…" : nimSnapshot?.accountType ?? "unavailable"}
+                  </span>
+                </div>
+                <div className="grid gap-1 text-muted-foreground sm:grid-cols-2">
+                  <span>
+                    spendable: <strong className="text-foreground">{nimSnapshot ? `${nimSnapshot.balanceNim.toFixed(5)} NIM` : "--"}</strong>
+                  </span>
+                  <span>
+                    raw: <strong className="text-foreground">{nimSnapshot ? `${nimSnapshot.balanceLuna} luna` : "--"}</strong>
+                  </span>
+                  <span>
+                    block: <strong className="text-foreground">{nimSnapshot?.blockNumber ?? "--"}</strong>
+                  </span>
+                  <span className="truncate" title={nimSnapshot?.address ?? undefined}>
+                    address: <strong className="text-foreground">{nimSnapshot?.address ?? wallet.address ?? "--"}</strong>
+                  </span>
+                </div>
+                {nimSnapshot?.accountType !== "basic" && nimSnapshot && (
+                  <p className="mt-2 text-amber-300/90">
+                    &gt; this account is not spendable by a basic NIM payment; Pay may show its value separately.
+                  </p>
+                )}
+              </div>
+            )}
             <p className="font-mono text-[11px] text-muted-foreground">
               &gt; deadline must be within 90 days. Late or missing proof is
               slashed into the slash pool.

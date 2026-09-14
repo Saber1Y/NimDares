@@ -36,9 +36,19 @@ interface WalletState {
   ) => Promise<{ ok: boolean; txRef?: string; error?: string }>;
   /** Spendable NIM for the connected account, or null when it cannot be read. */
   getBalance: () => Promise<number | null>;
+  /** Raw account data from the configured NIM RPC. */
+  getAccountSnapshot: () => Promise<NimAccountSnapshot | null>;
   /** Block height of the network the Pay host is on, or null when unreadable. */
   getBlockNumber: () => Promise<number | null>;
   connect: () => Promise<void>;
+}
+
+export interface NimAccountSnapshot {
+  address: string;
+  balanceLuna: number;
+  balanceNim: number;
+  accountType: string;
+  blockNumber: number | null;
 }
 
 const WalletContext = createContext<WalletState | null>(null);
@@ -148,27 +158,47 @@ export function NimiqWalletProvider({ children }: { children: ReactNode }) {
     [provider]
   );
 
-  const getBalance = useCallback(async (): Promise<number | null> => {
+  const getAccountSnapshot = useCallback(async (): Promise<NimAccountSnapshot | null> => {
     const address = accounts[0];
     if (!provider || !address) return null;
     try {
       provider.setRPCUrl(nimRpcUrlFor(network));
       // The SDK's RPC client unwraps the Albatross `{ data, metadata }` envelope,
       // so this resolves to the account record itself. Balance is in Luna.
-      const account = await provider.request<{ balance?: number | string } | null>({
-        method: "getAccountByAddress",
-        params: [address],
-      });
+      const [account, blockNumber] = await Promise.all([
+        provider.request<{
+          address?: string;
+          balance?: number | string;
+          type?: string;
+        } | null>({
+          method: "getAccountByAddress",
+          params: [address],
+        }),
+        provider.getBlockNumber(),
+      ]);
       const luna = account?.balance;
       if (luna === undefined || luna === null) return null;
-      const nim = Number(luna) / NIM_DECIMALS;
-      return Number.isFinite(nim) ? nim : null;
+      const balanceLuna = Number(luna);
+      const balanceNim = balanceLuna / NIM_DECIMALS;
+      if (!Number.isFinite(balanceLuna) || !Number.isFinite(balanceNim)) return null;
+      return {
+        address: account?.address ?? address,
+        balanceLuna,
+        balanceNim,
+        accountType: account?.type ?? "unknown",
+        blockNumber,
+      };
     } catch (e) {
       // A balance we cannot read must not be reported as zero.
-      console.warn("getBalance failed", e);
+      console.warn("getAccountSnapshot failed", e);
       return null;
     }
   }, [provider, accounts, network]);
+
+  const getBalance = useCallback(async (): Promise<number | null> => {
+    const snapshot = await getAccountSnapshot();
+    return snapshot?.balanceNim ?? null;
+  }, [getAccountSnapshot]);
 
   const getBlockNumber = useCallback(async (): Promise<number | null> => {
     if (!provider) return null;
@@ -191,6 +221,7 @@ export function NimiqWalletProvider({ children }: { children: ReactNode }) {
       signMessage,
       sendPayTransaction,
       getBalance,
+      getAccountSnapshot,
       getBlockNumber,
       connect,
     }),
@@ -203,6 +234,7 @@ export function NimiqWalletProvider({ children }: { children: ReactNode }) {
       signMessage,
       sendPayTransaction,
       getBalance,
+      getAccountSnapshot,
       getBlockNumber,
       connect,
     ]
