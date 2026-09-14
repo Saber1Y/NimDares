@@ -68,14 +68,19 @@ export const NIM_RPC_URL =
     ? "https://rpc.testnet.nimiqwatch.com"
     : "https://rpc.nimiqwatch.com");
 
-/** Resolves the RPC for the network the wallet is actually on. An explicit
- *  NEXT_PUBLIC_NIM_RPC_URL override always wins; otherwise the network string
- *  from the Pay host ("testnet"/"mainnet") picks the endpoint, so a wallet on
- *  testnet never reads its balance from the mainnet RPC. */
+/** Resolves the RPC for network the wallet sits on. An explicit
+ *  NEXT_PUBLIC_NIM_RPC_URL override always wins. The mini-app SDK's
+ *  getNetwork() always reports the static name "nimiq", so when the host
+ *  network string is that generic value the build-time NEXT_PUBLIC_NIMIQ_NETWORK
+ *  decides, keeping a testnet demo off the mainnet RPC. */
 export function nimRpcUrlFor(network: string | null | undefined): string {
   const override = process.env.NEXT_PUBLIC_NIM_RPC_URL;
   if (override) return override;
-  return (network ?? "").toLowerCase().startsWith("test")
+  const net =
+    network && network !== "nimiq"
+      ? network
+      : process.env.NEXT_PUBLIC_NIMIQ_NETWORK ?? "mainnet";
+  return net.toLowerCase().startsWith("test")
     ? "https://rpc.testnet.nimiqwatch.com"
     : "https://rpc.nimiqwatch.com";
 }

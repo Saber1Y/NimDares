@@ -59,12 +59,13 @@ export function NimiqWalletProvider({ children }: { children: ReactNode }) {
       setStatus("initializing");
       const prov = await init({ timeout: 10_000 });
       // The wallet only handles account/sign/send methods; anything else the
-      // SDK forwards to this RPC, which is how balances are read. Point it at
-      // the RPC for the network the Pay host is actually on.
-      const net = prov.getNetwork();
-      prov.setRPCUrl(nimRpcUrlFor(net));
+      // SDK forwards to this RPC, which is how balances are read. The SDK's
+      // getNetwork() always returns "nimiq", so resolve the RPC from the
+      // build-time network and surface the effective network for display.
+      const rpcUrl = nimRpcUrlFor(prov.getNetwork());
+      prov.setRPCUrl(rpcUrl);
       setProvider(prov);
-      setNetwork(net);
+      setNetwork(rpcUrl.includes("testnet") ? "testnet" : "mainnet");
       const res = await prov.listAccounts();
       if (isErrorResponse(res)) {
         setAccounts([]);
