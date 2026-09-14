@@ -123,6 +123,30 @@ NimDares only sends a basic NIM transaction to its configured escrow address wit
 
 None of the observed HTLC transactions target the NimDares escrow address or contain a NimDares funding memo.
 
+## Fresh-Account Reproduction
+
+To rule out the possibility that the original address was permanently contaminated by an old swap, a new Pay testnet address was used:
+
+`NQ60 KHR2 9DX2 VAYP F02Q ABLA 9STG XFTD MKQT`
+
+The faucet successfully credited this new address with 110,000 NIM in transaction `02a26d4f8c34c48027aa11ba42d2864dd6fe0c1d7b5eb1d8577f78667e76994a` at block `11,459,820`.
+
+Two blocks later, the new address created an HTLC containing the entire 110,000 NIM in transaction `5c9240361288c7d355cfa369c8c427d0a371a0f5907eaabb73285cc195dc35a3` at block `11,459,822`.
+
+The new HTLC is `NQ98 UQHQ PXM7 31LP NKQ0 R8FU BQBN BSUC CLAQ`.
+
+The HTLC reports sender `NQ60 KHR2 9DX2 VAYP F02Q ABLA 9STG XFTD MKQT`, recipient `NQ54 FTGY F6VJ EJPU NSMN RA5Q 0K21 8EQT Q05P`, balance `110,000 NIM`, and account type `htlc`.
+
+The fresh basic address subsequently reported balance `0`.
+
+This reproduction proves the behavior is not caused by the original address's prior HTLC history and is not caused by NimDares.
+
+It occurs on a newly funded Pay testnet address before NimDares can spend the received NIM.
+
+The common recipient `NQ54 FTGY F6VJ EJPU NSMN RA5Q 0K21 8EQT Q05P` strongly indicates a Pay/Fastspot-side automated swap or settlement flow.
+
+The exact Pay UI action or background trigger still needs confirmation from the Pay/Fastspot team.
+
 ## Why the Pay Display Differs
 
 The Pay UI appears to show an aggregate wallet or portfolio value.
