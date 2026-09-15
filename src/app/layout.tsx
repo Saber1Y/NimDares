@@ -18,7 +18,9 @@ export const metadata: Metadata = {
   description:
       "Decentralized goal-staking for Nimiq Pay. Stake NIM or USDT on a personal dare, prove it with AI or real API evidence, and let the escrow settle automatically.",
   icons: {
-    icon: "/icon.svg",
+    icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
+    shortcut: ["/icon.svg"],
+    apple: [{ url: "/icon.svg", type: "image/svg+xml" }],
   },
 };
 
