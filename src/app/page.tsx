@@ -1,7 +1,16 @@
 "use client";
 
 import { motion } from "motion/react";
-import { ArrowRight, Activity, ScanLine, GitPullRequest, Wallet, ShieldCheck, Swords, CircleAlert } from "lucide-react";
+import {
+  ArrowRight,
+  Activity,
+  ScanLine,
+  GitPullRequest,
+  Wallet,
+  ShieldCheck,
+  Swords,
+  CircleAlert,
+} from "lucide-react";
 import { DotGrid } from "@/components/ui/dot-grid";
 import { PillNav } from "@/components/pill-nav";
 import { HudPanel } from "@/components/ui/hud-panel";
@@ -27,18 +36,14 @@ export default function Landing() {
         <section className="mx-auto w-full max-w-[1400px] px-5 pb-24 pt-28 md:px-10 md:pb-32 md:pt-44">
           <div className="mx-auto grid max-w-[1160px] gap-16 md:grid-cols-[1.15fr_0.85fr] md:items-center">
             <div>
-              <motion.p
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.1, duration: 0.5 }}
-                className="font-mono text-[11px] uppercase tracking-[0.22em] text-primary"
-              >
-                Commitment money · Nimiq Pay mini app
-              </motion.p>
               <motion.h1
                 initial={{ opacity: 0, y: 16 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.15, duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+                transition={{
+                  delay: 0.15,
+                  duration: 0.6,
+                  ease: [0.16, 1, 0.3, 1],
+                }}
                 className="mt-5 text-5xl font-semibold leading-[0.98] tracking-[-0.065em] md:text-7xl"
               >
                 A dare you keep,
@@ -53,7 +58,11 @@ export default function Landing() {
               <motion.p
                 initial={{ opacity: 0, y: 14 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.3, duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+                transition={{
+                  delay: 0.3,
+                  duration: 0.6,
+                  ease: [0.16, 1, 0.3, 1],
+                }}
                 className="mt-8 max-w-xl text-lg leading-relaxed text-muted-foreground"
               >
                 NimDares puts your own money behind your promises, inside Nimiq
@@ -64,7 +73,11 @@ export default function Landing() {
               <motion.div
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.45, duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+                transition={{
+                  delay: 0.45,
+                  duration: 0.6,
+                  ease: [0.16, 1, 0.3, 1],
+                }}
                 className="mt-10 flex flex-wrap items-center gap-4"
               >
                 <Button href="/app" className="text-base">
@@ -80,26 +93,46 @@ export default function Landing() {
             <motion.div
               initial={{ opacity: 0, y: 20, scale: 0.97 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
-              transition={{ delay: 0.35, duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+              transition={{
+                delay: 0.35,
+                duration: 0.6,
+                ease: [0.16, 1, 0.3, 1],
+              }}
             >
               <div className="flex items-center justify-between px-1 pb-3">
                 <span className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-                  <Activity className="size-3.5 text-primary" /> How a dare plays out
+                  <Activity className="size-3.5 text-primary" /> How a dare
+                  plays out
                 </span>
-                <StatusPill label="EXAMPLE" tone="neutral" />
               </div>
               <TerminalBlock title="ship v0 by friday">
                 {[
-                  { kind: "SYS" as const, text: "You stake 10 NIM on \u201cShip v0 by Friday\u201d." },
-                  { kind: "EVENT" as const, text: "Friday. You send one screenshot as your proof." },
-                  { kind: "AGENT" as const, text: "The judge checks it against the rules you agreed to." },
-                  { kind: "OK" as const, text: "Verified. Your 10 NIM goes straight back to your wallet." },
+                  {
+                    kind: "SYS" as const,
+                    text: "You stake 10 NIM on \u201cShip v0 by Friday\u201d.",
+                  },
+                  {
+                    kind: "EVENT" as const,
+                    text: "Friday. You send one screenshot as your proof.",
+                  },
+                  {
+                    kind: "AGENT" as const,
+                    text: "The judge checks it against the rules you agreed to.",
+                  },
+                  {
+                    kind: "OK" as const,
+                    text: "Verified. Your 10 NIM goes straight back to your wallet.",
+                  },
                 ].map((row, i) => (
                   <motion.div
                     key={row.text}
                     initial={{ opacity: 0, y: 6 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.7 + i * 0.45, duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+                    transition={{
+                      delay: 0.7 + i * 0.45,
+                      duration: 0.4,
+                      ease: [0.16, 1, 0.3, 1],
+                    }}
                   >
                     <TerminalRow kind={row.kind}>{row.text}</TerminalRow>
                   </motion.div>
@@ -111,7 +144,10 @@ export default function Landing() {
 
         {/* METRICS */}
         <section className="mx-auto w-full max-w-[1400px] border-t border-border px-5 py-16 md:px-10">
-          <motion.div {...fade} className="mx-auto grid max-w-[1160px] grid-cols-2 gap-8 md:grid-cols-4">
+          <motion.div
+            {...fade}
+            className="mx-auto grid max-w-[1160px] grid-cols-2 gap-8 md:grid-cols-4"
+          >
             {[
               { label: "Stake in", value: "NIM" },
               { label: "Proof", value: "A screenshot" },
@@ -119,15 +155,22 @@ export default function Landing() {
               { label: "Middlemen", value: "0" },
             ].map((m) => (
               <div key={m.label} className="border-t border-border pt-3">
-                <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">{m.label}</p>
-                <p className="mt-3 text-2xl font-semibold tracking-[-0.04em] text-primary">{m.value}</p>
+                <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                  {m.label}
+                </p>
+                <p className="mt-3 text-2xl font-semibold tracking-[-0.04em] text-primary">
+                  {m.value}
+                </p>
               </div>
             ))}
           </motion.div>
         </section>
 
         {/* HOW IT WORKS */}
-        <section id="how" className="mx-auto w-full max-w-[1400px] border-t border-border px-5 py-24 md:px-10 md:py-32">
+        <section
+          id="how"
+          className="mx-auto w-full max-w-[1400px] border-t border-border px-5 py-24 md:px-10 md:py-32"
+        >
           <div className="mx-auto max-w-[1160px]">
             <motion.div {...fade}>
               <h2 className="text-4xl font-semibold tracking-[-0.05em] md:text-5xl">
@@ -163,11 +206,19 @@ export default function Landing() {
                 <motion.div
                   key={step.label}
                   {...fade}
-                  transition={{ delay: i * 0.06, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+                  transition={{
+                    delay: i * 0.06,
+                    duration: 0.5,
+                    ease: [0.16, 1, 0.3, 1],
+                  }}
                 >
                   <HudPanel label={step.label} icon={step.icon}>
-                    <h3 className="text-xl font-semibold tracking-[-0.03em]">{step.title}</h3>
-                    <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{step.body}</p>
+                    <h3 className="text-xl font-semibold tracking-[-0.03em]">
+                      {step.title}
+                    </h3>
+                    <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+                      {step.body}
+                    </p>
                   </HudPanel>
                 </motion.div>
               ))}
@@ -176,7 +227,10 @@ export default function Landing() {
         </section>
 
         {/* PROOF */}
-        <section id="proof" className="mx-auto w-full max-w-[1400px] border-t border-border px-5 py-24 md:px-10 md:py-32">
+        <section
+          id="proof"
+          className="mx-auto w-full max-w-[1400px] border-t border-border px-5 py-24 md:px-10 md:py-32"
+        >
           <div className="mx-auto grid max-w-[1160px] gap-14 md:grid-cols-2 md:items-start">
             <motion.div {...fade}>
               <h2 className="text-4xl font-semibold tracking-[-0.05em] md:text-5xl">
@@ -193,13 +247,30 @@ export default function Landing() {
                 <StatusPill label="Unclear proof is refunded" tone="neutral" />
               </div>
             </motion.div>
-            <motion.div {...fade} transition={{ delay: 0.1, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}>
-              <HudPanel label="A ruling, in plain words" icon={<CircleAlert className="size-3.5" />} badge="EXAMPLE">
+            <motion.div
+              {...fade}
+              transition={{
+                delay: 0.1,
+                duration: 0.5,
+                ease: [0.16, 1, 0.3, 1],
+              }}
+            >
+              <HudPanel
+                label="A ruling, in plain words"
+                icon={<CircleAlert className="size-3.5" />}
+                badge="EXAMPLE"
+              >
                 <div className="space-y-4">
                   <TerminalRow kind="EVENT">Screenshot received.</TerminalRow>
-                  <TerminalRow kind="AGENT">Checked: the right goal, inside your dates, not edited.</TerminalRow>
-                  <TerminalRow kind="OK">Verified — your stake comes back.</TerminalRow>
-                  <TerminalRow kind="FAIL">Not verified — the screenshot was from before you started.</TerminalRow>
+                  <TerminalRow kind="AGENT">
+                    Checked: the right goal, inside your dates, not edited.
+                  </TerminalRow>
+                  <TerminalRow kind="OK">
+                    Verified — your stake comes back.
+                  </TerminalRow>
+                  <TerminalRow kind="FAIL">
+                    Not verified — the screenshot was from before you started.
+                  </TerminalRow>
                 </div>
               </HudPanel>
             </motion.div>
@@ -207,9 +278,16 @@ export default function Landing() {
         </section>
 
         {/* VERIFIERS */}
-        <section id="verifiers" className="mx-auto w-full max-w-[1400px] border-t border-border px-5 py-24 md:px-10 md:py-32">
+        <section
+          id="verifiers"
+          className="mx-auto w-full max-w-[1400px] border-t border-border px-5 py-24 md:px-10 md:py-32"
+        >
           <motion.div {...fade} className="mx-auto max-w-[1160px]">
-            <HudPanel label="What the judge checks" icon={<GitPullRequest className="size-4" />} badge="EVERY DARE">
+            <HudPanel
+              label="What the judge checks"
+              icon={<GitPullRequest className="size-4" />}
+              badge="EVERY DARE"
+            >
               <div className="grid gap-8 md:grid-cols-3">
                 {[
                   {
@@ -230,10 +308,14 @@ export default function Landing() {
                 ].map((v) => (
                   <div key={v.name} className="border-t border-border pt-4">
                     <div className="flex items-center justify-between">
-                      <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-primary">{v.name}</p>
+                      <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-primary">
+                        {v.name}
+                      </p>
                       <ShieldCheck className="size-4 text-muted-foreground" />
                     </div>
-                    <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{v.detail}</p>
+                    <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+                      {v.detail}
+                    </p>
                   </div>
                 ))}
               </div>
@@ -243,14 +325,18 @@ export default function Landing() {
 
         {/* CTA */}
         <section className="mx-auto w-full max-w-[1400px] border-t border-border px-5 py-24 md:px-10 md:py-36">
-          <motion.div {...fade} className="mx-auto max-w-[1160px] rounded-2xl border border-border bg-card/65 p-10 text-center shadow-2xl shadow-black/20 backdrop-blur-xl md:p-16">
+          <motion.div
+            {...fade}
+            className="mx-auto max-w-[1160px] rounded-2xl border border-border bg-card/65 p-10 text-center shadow-2xl shadow-black/20 backdrop-blur-xl md:p-16"
+          >
             <h2 className="text-4xl font-semibold tracking-[-0.05em] md:text-6xl">
               What are you putting
               <br />
               on the line tonight?
             </h2>
             <p className="mx-auto mt-6 max-w-lg text-lg leading-relaxed text-muted-foreground">
-              Open NimDares inside Nimiq Pay and stake your first dare in under a minute.
+              Open NimDares inside Nimiq Pay and stake your first dare in under
+              a minute.
             </p>
             <div className="mt-10 flex justify-center">
               <Button href="/app" className="px-8 text-base">
