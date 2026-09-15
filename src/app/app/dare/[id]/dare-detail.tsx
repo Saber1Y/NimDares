@@ -17,13 +17,14 @@ import {
   Coins,
   Loader2,
 } from "lucide-react";
-import { useNimiqWallet, isErrorResponse } from "@/components/nimiq-provider";
+import { useNimiqWallet } from "@/components/nimiq-provider";
 import { HudPanel } from "@/components/ui/hud-panel";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Dare, Participant } from "@/lib/types";
 import { NIM_MAX_TX_DATA_BYTES, MAX_PROOF_ATTEMPTS } from "@/lib/config";
+import { formatProviderError } from "@/lib/errors";
 
 type SubmitState =
   | { phase: "idle"; error: string | null }
@@ -53,11 +54,6 @@ function base64UrlEncode(s: string): string {
   return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-function memoHex(memo: string): string {
-  return Array.from(new TextEncoder().encode(memo))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
 
 interface ProofOutcome {
   verdict?: string;
@@ -99,6 +95,7 @@ function shortAddr(a: string): string {
 
 export default function DareDetail({ id, initial }: { id: string; initial: Dare | null }) {
   const wallet = useNimiqWallet();
+  const { getAccountSnapshots, balances, status: walletStatus } = wallet;
   const [dare, setDare] = useState<Dare | null>(initial);
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [missing, setMissing] = useState(false);
@@ -110,6 +107,11 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
     { phase: "idle" }
   );
   const [joining, setJoining] = useState(false);
+  // Funding has its own note, rendered beside the fund button. Sharing `submit`
+  // pushed payment status down into the proof panel at the foot of the page.
+  const [fundingNote, setFundingNote] = useState<
+    { tone: "error" | "ok"; text: string } | null
+  >(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -135,6 +137,13 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
       cancelled = true;
     };
   }, [id, dare]);
+
+  useEffect(() => {
+    if (walletStatus !== "ready") return;
+    // Warms the balance so the fund button can say whether the stake is
+    // affordable before the user taps it. Cached in the provider for 10s.
+    void getAccountSnapshots();
+  }, [walletStatus, getAccountSnapshots]);
 
   useEffect(() => {
     if (!dare) return;
@@ -223,6 +232,15 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
     : cur.verifierResult?.status === "VALID";
   const attemptsLeft = ruledValid ? 0 : Math.max(0, MAX_PROOF_ATTEMPTS - attemptsUsed);
   const pastDeadline = isPastDeadline(cur.deadline);
+  // Same affordability rule as the create page: the highest single account,
+  // since a stake is paid from one account. An unreadable balance stays null
+  // and never blocks.
+  const availableNim =
+    cur.asset === "NIM" && balances.length > 0
+      ? balances.reduce((best, snap) => Math.max(best, snap.balanceNim), 0)
+      : null;
+  const insufficientFunds = availableNim !== null && cur.amount > availableNim;
+  const shortfallNim = insufficientFunds ? cur.amount - (availableNim ?? 0) : 0;
   const roomOpen = cur.status === "LOBBY" || cur.status === "ACTIVE";
   const canJoin =
     isRoom &&
@@ -254,11 +272,18 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
       setFunding({ phase: "idle" });
       return;
     }
+    if (insufficientFunds) {
+      setFundingNote({
+        tone: "error",
+        text: `insufficient balance: ${availableNim?.toFixed(2)} NIM available, ${shortfallNim.toFixed(2)} NIM short`,
+      });
+      return;
+    }
     // Reference the escrow scanner resolves the stake from; stays inside the
     // 64-byte recipient-data cap.
     const memo = `nimdares:${isRoom && mySeat ? mySeat.id : cur.id}`;
     if (new TextEncoder().encode(memo).length > NIM_MAX_TX_DATA_BYTES) {
-      setSubmit({ phase: "idle", error: "funding reference is too long for a Nimiq transaction" });
+      setFundingNote({ tone: "error", text: "funding reference is too long for a Nimiq transaction" });
       return;
     }
 
@@ -266,40 +291,33 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
     const message = `nimdares:fund:${cur.id}:${Date.now()}`;
     const sig = await wallet.signMessage(message);
     if (!sig) {
-      setSubmit({ phase: "idle", error: "funding rejected: signature was declined" });
+      setFundingNote({ tone: "error", text: "funding rejected: signature was declined" });
       return;
     }
     const authHeader = `Nimiq ${sig.publicKey}:${sig.signature}:${base64UrlEncode(message)}`;
 
+    setFundingNote(null);
     setFunding({ phase: "sending", serialized: null });
-    let txRef: string | null = null;
-    try {
-      const valueLuna = Math.round(cur.amount * 100_000);
-      const feeLuna = Math.round(valueLuna / 1000) + 100;
-      const height = await wallet.provider.getBlockNumber();
-      const result = await wallet.provider.sendBasicTransactionWithData({
-        recipient: recip,
-        value: valueLuna,
-        fee: feeLuna,
-        data: memoHex(memo),
-        validityStartHeight: height,
-      });
-      if (isErrorResponse(result)) {
-        // Declined in Nimiq Pay: the stake simply stays unfunded.
-        setFunding({ phase: "idle" });
-        setSubmit({ phase: "idle", error: `funding rejected: ${result.error.message}` });
-        return;
-      }
-      txRef = typeof result === "string" ? result : null;
-      setFunding({ phase: "sending", serialized: txRef });
-    } catch (e) {
+
+    // The same call the create flow uses. Fee and validity window are left to
+    // the wallet: supplying our own validityStartHeight here is what the host
+    // was rejecting as an invalidated transaction.
+    const res = await wallet.sendPayTransaction(recip, Math.round(cur.amount * 100_000), memo);
+    const sent = res.ok;
+    if (!res.ok && !res.indeterminate) {
+      // Declined in Nimiq Pay: the stake simply stays unfunded.
       setFunding({ phase: "idle" });
-      setSubmit({ phase: "idle", error: e instanceof Error ? e.message : String(e) });
+      setFundingNote({
+        tone: "error",
+        text: `funding rejected: ${res.error ?? "the payment was declined"}`,
+      });
       return;
     }
+    const txRef = res.txRef ?? null;
+    setFunding({ phase: "sending", serialized: txRef });
 
     try {
-      const res = await fetch(`/api/dares/${cur.id}/fund`, {
+      const confirm = await fetch(`/api/dares/${cur.id}/fund`, {
         method: "POST",
         headers: { "content-type": "application/json", authorization: authHeader },
         body: JSON.stringify({
@@ -308,25 +326,33 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
           participantId: isRoom && mySeat ? mySeat.id : undefined,
         }),
       });
-      const data = (await res.json()) as { ok?: boolean; status?: string; error?: string };
+      const data = (await confirm.json()) as { ok?: boolean; status?: string; error?: string };
       setFunding({ phase: "idle" });
-      if (!res.ok || !data.ok) {
-        setSubmit({ phase: "idle", error: data.error ?? "could not confirm the escrow deposit" });
+      if (!confirm.ok || !data.ok) {
+        setFundingNote({ tone: "error", text: data.error ?? "could not confirm the escrow deposit" });
         return;
       }
       if (data.status === "funded") {
-        setSubmit({ phase: "done", message: "stake is in escrow - the dare is live" });
-      } else {
+        setFundingNote({ tone: "ok", text: "stake is in escrow - the dare is live" });
+      } else if (sent) {
         // Broadcast but not in a block yet; the refresh loop settles it.
-        setSubmit({ phase: "done", message: "payment sent - confirming on the Nimiq network" });
+        setFundingNote({ tone: "ok", text: "payment sent - confirming on the Nimiq network" });
+      } else {
+        // The wallet never confirmed and escrow has seen nothing: claiming the
+        // payment was sent here is what made a failed transfer look successful.
+        setFundingNote({
+          tone: "error",
+          text: `${res.error ?? "the wallet did not confirm the payment"} - nothing has reached escrow`,
+        });
       }
       const refresh = await fetch(`/api/dares/${cur.id}`, { cache: "no-store" });
       const rd = await refresh.json();
       if (rd.dare) setDare(rd.dare as Dare);
       if (Array.isArray(rd.participants)) setParticipants(rd.participants);
+      void getAccountSnapshots(true);
     } catch (e) {
       setFunding({ phase: "idle" });
-      setSubmit({ phase: "idle", error: e instanceof Error ? e.message : String(e) });
+      setFundingNote({ tone: "error", text: formatProviderError(e) });
     }
   }
 
@@ -363,7 +389,7 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
       if (Array.isArray(rd.participants)) setParticipants(rd.participants);
     } catch (e) {
       setJoining(false);
-      setSubmit({ phase: "idle", error: e instanceof Error ? e.message : String(e) });
+      setSubmit({ phase: "idle", error: formatProviderError(e) });
     }
   }
 
@@ -408,7 +434,7 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
       setSubmit({ phase: "done", message: proofMessage(data, false) });
       if (data.dare) setDare(data.dare);
     } catch (e) {
-      setSubmit({ phase: "idle", error: e instanceof Error ? e.message : String(e) });
+      setSubmit({ phase: "idle", error: formatProviderError(e) });
     }
   }
 
@@ -455,7 +481,7 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
       const rd = await refresh.json();
       if (Array.isArray(rd.participants)) setParticipants(rd.participants);
     } catch (e) {
-      setSubmit({ phase: "idle", error: e instanceof Error ? e.message : String(e) });
+      setSubmit({ phase: "idle", error: formatProviderError(e) });
     }
   }
 
@@ -496,9 +522,6 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
           <ArrowLeft className="size-4" /> Console
         </Button>
         <div className="mt-5 flex flex-wrap items-center gap-3">
-          <p className="font-mono text-[11px] uppercase tracking-[0.22em] text-primary">
-            /operator-console/dare/{cur.id.slice(0, 8)}
-          </p>
           <StatusPill label={cur.status} tone={tone} live={tone === "live"} />
           {isRoom && <StatusPill label={cur.isPrivate ? "TEAM ROOM" : "ARENA ROOM"} tone="neutral" />}
         </div>
@@ -685,23 +708,52 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
                 </div>
               )}
               {copied && <StatusPill label="COPIED" tone="live" live />}
-              {cur.asset === "NIM" && wallet.provider && wallet.status === "ready" && (
+              {cur.asset === "NIM" &&
+                wallet.provider &&
+                // "signing" is the wallet sheet being open: keep the panel
+                // mounted through it, or the progress and result vanish
+                // exactly while the payment is happening.
+                (walletStatus === "ready" || walletStatus === "signing") && (
                 <div className="flex flex-wrap items-center gap-4 border-t border-border pt-4">
                   <Button
                     onClick={() => void fundFromWallet()}
-                    disabled={funding.phase === "sending" || (isRoom && !mySeat)}
+                    disabled={
+                      funding.phase === "sending" || insufficientFunds || (isRoom && !mySeat)
+                    }
                   >
-                    {funding.phase === "sending" ? "Sending…" : `Fund ${formatAmount(cur.amount)} NIM from wallet`}
+                    {funding.phase === "sending"
+                      ? "Sending…"
+                      : insufficientFunds
+                        ? "Insufficient NIM balance"
+                        : `Fund ${formatAmount(cur.amount)} NIM from wallet`}
                   </Button>
                   <p className="font-mono text-[11px] text-muted-foreground">
                     &gt; signed by the Pay host; the sweep auto-activates once the deposit lands
                   </p>
+                  <div className="w-full">
+                    {insufficientFunds && (
+                      <p className="font-mono text-[11px] text-red-400">
+                        &gt; insufficient balance · {availableNim?.toFixed(2)} NIM available,{" "}
+                        {shortfallNim.toFixed(2)} NIM short
+                      </p>
+                    )}
+                    {funding.phase === "sending" && funding.serialized && (
+                      <p className="font-mono text-[11px] text-primary">
+                        TX SENT TO PAY HOST - {funding.serialized.slice(0, 40)}…
+                      </p>
+                    )}
+                    {fundingNote && (
+                      <p
+                        className={`font-mono text-[11px] ${
+                          fundingNote.tone === "error" ? "text-red-400" : "text-primary"
+                        }`}
+                      >
+                        {fundingNote.tone === "error" ? "ERR: " : "OK: "}
+                        {fundingNote.text}
+                      </p>
+                    )}
+                  </div>
                 </div>
-              )}
-              {funding.phase === "sending" && funding.serialized && (
-                <p className="font-mono text-[11px] text-primary">
-                  TX SENT TO PAY HOST - {funding.serialized.slice(0, 40)}…
-                </p>
               )}
             </div>
           </HudPanel>
@@ -953,7 +1005,7 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
                   </div>
                 </div>
               )}
-              {submit.phase === "idle" && submit.error && !submit.error.startsWith("funding") && (
+              {submit.phase === "idle" && submit.error && (
                 <p className="font-mono text-[11px] text-red-400">ERR: {submit.error}</p>
               )}
               {submit.phase === "done" && !submit.message.startsWith("seat reserved") && (

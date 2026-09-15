@@ -22,6 +22,7 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { Button } from "@/components/ui/button";
 import type { Asset, RoomMode, VerifierKind } from "@/lib/types";
 import { NIM_MAX_TX_DATA_BYTES } from "@/lib/config";
+import { formatProviderError as extractError } from "@/lib/errors";
 
 type FundStep = "funding" | "paid" | "cancelled" | "failed";
 
@@ -54,6 +55,9 @@ type CreateState =
 // Screenshot proof is the only verifier: one evidence path, one adjudicator.
 const VERIFIER: VerifierKind = "VISION";
 
+/** Balance refresh cadence on the stake panel. */
+const NIM_SNAPSHOT_POLL_MS = 30_000;
+
 const MODES: {
   mode: RoomMode;
   label: string;
@@ -85,19 +89,6 @@ function base64UrlEncode(s: string): string {
   return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-function extractError(e: unknown): string {
-  if (e instanceof Error) return e.message;
-  if (typeof e === "string") return e;
-  if (e && typeof e === "object" && "message" in e)
-    return String((e as { message: unknown }).message);
-  try {
-    const s = JSON.stringify(e);
-    return s && s !== "{}" ? s : "An unknown error occurred";
-  } catch {
-    return "An unknown error occurred";
-  }
-}
-
 export default function CreateDare() {
   const wallet = useNimiqWallet();
 
@@ -110,28 +101,41 @@ export default function CreateDare() {
   const [mode, setMode] = useState<RoomMode>("solo");
   const [capacity, setCapacity] = useState("5");
   const [state, setState] = useState<CreateState>({ phase: "idle" });
-  const [nimSnapshot, setNimSnapshot] = useState<Awaited<ReturnType<typeof wallet.getAccountSnapshot>>>(null);
+  const [nimSnapshots, setNimSnapshots] = useState<
+    Awaited<ReturnType<typeof wallet.getAccountSnapshots>>
+  >([]);
   const [nimSnapshotLoading, setNimSnapshotLoading] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Pulled off the context object so the effect depends on the two values it
+  // actually uses, rather than on a wallet reference that changes every render.
+  const { getAccountSnapshots, status: walletStatus } = wallet;
+
   useEffect(() => {
-    if (wallet.status !== "ready" || asset !== "NIM") return;
+    if (walletStatus !== "ready" || asset !== "NIM") return;
     let cancelled = false;
     const refresh = async () => {
       setNimSnapshotLoading(true);
-      const snapshot = await wallet.getAccountSnapshot();
+      // Every listed account, so the affordability check matches the one the
+      // submit path runs rather than looking at the primary address alone.
+      const snapshots = await getAccountSnapshots();
       if (!cancelled) {
-        setNimSnapshot(snapshot);
+        setNimSnapshots(snapshots);
         setNimSnapshotLoading(false);
       }
     };
     void refresh();
-    const interval = window.setInterval(() => void refresh(), 10_000);
+    // Longer than the provider's snapshot cache, so each tick is a real read,
+    // and slow enough to stay inside the public RPC's request cap.
+    const interval = window.setInterval(
+      () => void refresh(),
+      NIM_SNAPSHOT_POLL_MS,
+    );
     return () => {
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [asset, wallet.getAccountSnapshot, wallet.status]);
+  }, [asset, getAccountSnapshots, walletStatus]);
 
   useEffect(() => {
     return () => {
@@ -195,7 +199,11 @@ export default function CreateDare() {
           participantId: created.participantId ?? undefined,
         }),
       });
-      data = (await fund.json()) as { ok?: boolean; status?: string; error?: string };
+      data = (await fund.json()) as {
+        ok?: boolean;
+        status?: string;
+        error?: string;
+      };
       if (!fund.ok || !data.ok) {
         setState({
           ...created,
@@ -253,8 +261,17 @@ export default function CreateDare() {
       valueLuna,
       memo,
     );
+    if (!res.ok && res.indeterminate) {
+      // The wallet never answered, so the payment may already be on its way.
+      // Treat it as sent and let the chain decide: the escrow scan settles it
+      // if it landed, and offering "pay again" here could charge twice.
+      const unknown = { ...created, paymentSent: true, txRef: null };
+      setState({ ...unknown, step: "funding", error: res.error ?? null });
+      void confirmFunding(unknown, authHeader);
+      return;
+    }
     if (!res.ok) {
-      // Declined or failed in Nimiq Pay: the dare stays staged and unfunded.
+      // Declined in Nimiq Pay: the dare stays staged and unfunded.
       setState({
         ...created,
         step: "cancelled",
@@ -345,7 +362,10 @@ export default function CreateDare() {
           id: string;
           maxCapacity: number;
           roomCode: string | null;
-          evidenceSpec?: { requirements: string[]; expectedArtifact: string } | null;
+          evidenceSpec?: {
+            requirements: string[];
+            expectedArtifact: string;
+          } | null;
         };
         participants?: { id: string }[];
       };
@@ -461,7 +481,10 @@ export default function CreateDare() {
                   </p>
                   <ul className="mt-2 flex flex-col gap-1.5">
                     {c.evidenceSpec.requirements.map((r, i) => (
-                      <li key={i} className="flex gap-2 text-xs leading-relaxed text-foreground/80">
+                      <li
+                        key={i}
+                        className="flex gap-2 text-xs leading-relaxed text-foreground/80"
+                      >
                         <span className="text-primary">{i + 1}.</span>
                         <span>{r}</span>
                       </li>
@@ -593,6 +616,27 @@ export default function CreateDare() {
   }
 
   const disabled = wallet.status !== "ready";
+
+  // Live affordability check against the account the stake would be paid from.
+  // A balance we could not read stays null, which never reads as "insufficient" -
+  // the wallet's own approval sheet is the real gate.
+  const nimSnapshot =
+    nimSnapshots.length > 0
+      ? nimSnapshots.reduce((best, snap) =>
+          snap.balanceNim > best.balanceNim ? snap : best,
+        )
+      : null;
+  const stakeNim = Number(amount);
+  const stakeIsNumber = Number.isFinite(stakeNim) && stakeNim > 0;
+  // The highest single account, matching getBalance(): a stake is paid from one
+  // account, so the total across accounts is not what it has to fit inside.
+  const availableNim =
+    asset === "NIM" && nimSnapshots.length > 0
+      ? nimSnapshots.reduce((best, snap) => Math.max(best, snap.balanceNim), 0)
+      : null;
+  const insufficient =
+    availableNim !== null && stakeIsNumber && stakeNim > availableNim;
+  const shortfallNim = insufficient ? stakeNim - (availableNim ?? 0) : 0;
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-8">
@@ -758,8 +802,15 @@ export default function CreateDare() {
                   step={asset === "NIM" ? "0.01" : "0.1"}
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
-                  className="hud-input"
+                  className={`hud-input ${insufficient ? "border-red-400/70 text-red-300" : ""}`}
+                  aria-invalid={insufficient}
                 />
+                {insufficient && (
+                  <p className="mt-2 font-mono text-[11px] text-red-400">
+                    &gt; insufficient balance · {availableNim?.toFixed(2)} NIM
+                    available, {shortfallNim.toFixed(2)} NIM short
+                  </p>
+                )}
               </Field>
               <Field label="Deadline">
                 <input
@@ -773,28 +824,62 @@ export default function CreateDare() {
             {asset === "NIM" && (
               <div className="rounded-xl border border-border/70 bg-black/20 px-4 py-3 font-mono text-[11px]">
                 <div className="mb-2 flex items-center justify-between gap-3">
-                  <span className="text-muted-foreground">LIVE TESTNET ACCOUNT</span>
-                  <span className={nimSnapshot?.accountType === "basic" ? "text-primary" : "text-amber-300"}>
-                    {nimSnapshotLoading ? "reading…" : nimSnapshot?.accountType ?? "unavailable"}
+                  <span className="text-muted-foreground">
+                    LIVE TESTNET ACCOUNT
+                  </span>
+                  <span
+                    className={
+                      nimSnapshot?.accountType === "basic"
+                        ? "text-primary"
+                        : "text-amber-300"
+                    }
+                  >
+                    {nimSnapshotLoading
+                      ? "reading…"
+                      : (nimSnapshot?.accountType ?? "unavailable")}
                   </span>
                 </div>
                 <div className="grid gap-1 text-muted-foreground sm:grid-cols-2">
                   <span>
-                    spendable: <strong className="text-foreground">{nimSnapshot ? `${nimSnapshot.balanceNim.toFixed(5)} NIM` : "--"}</strong>
+                    spendable:{" "}
+                    <strong className="text-foreground">
+                      {nimSnapshot
+                        ? `${nimSnapshot.balanceNim.toFixed(5)} NIM`
+                        : "--"}
+                    </strong>
                   </span>
                   <span>
-                    raw: <strong className="text-foreground">{nimSnapshot ? `${nimSnapshot.balanceLuna} luna` : "--"}</strong>
+                    raw:{" "}
+                    <strong className="text-foreground">
+                      {nimSnapshot ? `${nimSnapshot.balanceLuna} luna` : "--"}
+                    </strong>
                   </span>
                   <span>
-                    block: <strong className="text-foreground">{nimSnapshot?.blockNumber ?? "--"}</strong>
+                    block:{" "}
+                    <strong className="text-foreground">
+                      {nimSnapshot?.blockNumber ?? "--"}
+                    </strong>
                   </span>
-                  <span className="truncate" title={nimSnapshot?.address ?? undefined}>
-                    address: <strong className="text-foreground">{nimSnapshot?.address ?? wallet.address ?? "--"}</strong>
+                  <span
+                    className="truncate"
+                    title={nimSnapshot?.address ?? undefined}
+                  >
+                    address:{" "}
+                    <strong className="text-foreground">
+                      {nimSnapshot?.address ?? wallet.address ?? "--"}
+                    </strong>
                   </span>
                 </div>
+                {insufficient && (
+                  <p className="mt-2 text-red-400">
+                    &gt; staking {stakeNim} NIM needs {shortfallNim.toFixed(5)}{" "}
+                    NIM more than this account holds.
+                  </p>
+                )}
                 {nimSnapshot?.accountType !== "basic" && nimSnapshot && (
                   <p className="mt-2 text-amber-300/90">
-                    &gt; this account is not spendable by a basic NIM payment; Pay may show its value separately.
+                    &gt; this account is not spendable by a basic NIM payment;
+                    Pay may show its value separately.
                   </p>
                 )}
               </div>
@@ -821,7 +906,9 @@ export default function CreateDare() {
             <div className="flex items-start gap-3 rounded-xl border border-primary/40 bg-primary/10 px-4 py-3">
               <ImageIcon className="mt-0.5 size-4 shrink-0 text-primary" />
               <div className="flex flex-col gap-1">
-                <span className="text-sm text-foreground">Screenshot proof</span>
+                <span className="text-sm text-foreground">
+                  Screenshot proof
+                </span>
                 <span className="text-xs leading-relaxed text-muted-foreground">
                   You submit a screenshot before the deadline and an AI judge
                   rules on it against your acceptance criteria.
@@ -829,8 +916,8 @@ export default function CreateDare() {
               </div>
             </div>
             <p className="font-mono text-[11px] leading-relaxed text-muted-foreground">
-              &gt; a commit history, a run summary, a receipt - anything works as
-              long as the criteria above say what the screenshot has to show.
+              &gt; a commit history, a run summary, a receipt - anything works
+              as long as the criteria above say what the screenshot has to show.
             </p>
           </div>
         </HudPanel>
@@ -870,13 +957,16 @@ export default function CreateDare() {
           onClick={handleCreate}
           disabled={
             disabled ||
+            insufficient ||
             state.phase === "signing" ||
             state.phase === "submitting"
           }
         >
           {state.phase === "signing" || state.phase === "submitting"
             ? "Signing…"
-            : `Stake ${amount} ${asset} & create`}
+            : insufficient
+              ? `Insufficient ${asset} balance`
+              : `Stake ${amount} ${asset} & create`}
           <ArrowRight className="size-4" />
         </Button>
       </motion.div>

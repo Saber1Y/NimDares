@@ -105,9 +105,6 @@ export default function AdminPage() {
           <ArrowLeft className="size-4" /> Console
         </Button>
         <div className="mt-5 flex items-center gap-3">
-          <p className="font-mono text-[11px] uppercase tracking-[0.22em] text-primary">
-            /admin/control-plane
-          </p>
           {data && <StatusPill label={`STORE: ${data.store.toUpperCase()}`} tone="neutral" />}
         </div>
         <h1 className="mt-3 text-4xl font-semibold tracking-[-0.05em] md:text-5xl">

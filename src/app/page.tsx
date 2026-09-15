@@ -131,8 +131,7 @@ export default function Landing() {
         <section id="how" className="mx-auto w-full max-w-[1400px] border-t border-border px-5 py-24 md:px-10 md:py-32">
           <div className="mx-auto max-w-[1160px]">
             <motion.div {...fade}>
-              <p className="font-mono text-[11px] uppercase tracking-[0.22em] text-primary">/how-it-works</p>
-              <h2 className="mt-4 text-4xl font-semibold tracking-[-0.05em] md:text-5xl">
+              <h2 className="text-4xl font-semibold tracking-[-0.05em] md:text-5xl">
                 Three moves. No referee.
               </h2>
               <p className="mt-5 max-w-2xl text-lg leading-relaxed text-muted-foreground">
@@ -181,8 +180,7 @@ export default function Landing() {
         <section id="proof" className="mx-auto w-full max-w-[1400px] border-t border-border px-5 py-24 md:px-10 md:py-32">
           <div className="mx-auto grid max-w-[1160px] gap-14 md:grid-cols-2 md:items-start">
             <motion.div {...fade}>
-              <p className="font-mono text-[11px] uppercase tracking-[0.22em] text-primary">/proof</p>
-              <h2 className="mt-4 text-4xl font-semibold tracking-[-0.05em] md:text-5xl">
+              <h2 className="text-4xl font-semibold tracking-[-0.05em] md:text-5xl">
                 Screenshot-proof gaming is dead.
               </h2>
               <p className="mt-5 text-lg leading-relaxed text-muted-foreground">
@@ -244,8 +242,7 @@ export default function Landing() {
         {/* CTA */}
         <section className="mx-auto w-full max-w-[1400px] border-t border-border px-5 py-24 md:px-10 md:py-36">
           <motion.div {...fade} className="mx-auto max-w-[1160px] rounded-2xl border border-border bg-card/65 p-10 text-center shadow-2xl shadow-black/20 backdrop-blur-xl md:p-16">
-            <p className="font-mono text-[11px] uppercase tracking-[0.22em] text-primary">/deploy</p>
-            <h2 className="mt-4 text-4xl font-semibold tracking-[-0.05em] md:text-6xl">
+            <h2 className="text-4xl font-semibold tracking-[-0.05em] md:text-6xl">
               What are you putting
               <br />
               on the line tonight?

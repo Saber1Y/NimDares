@@ -6,11 +6,13 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
 import { init, type NimiqProvider, type SignatureResult } from "@nimiq/mini-app-sdk";
 import { NIM_DECIMALS, nimRpcUrlFor } from "@/lib/config";
+import { formatProviderError } from "@/lib/errors";
 
 export type WalletStatus =
   | "initializing"
@@ -33,10 +35,26 @@ interface WalletState {
     recipient: string,
     valueLuna: number,
     memo: string
-  ) => Promise<{ ok: boolean; txRef?: string; error?: string }>;
-  /** Spendable NIM for the connected account, or null when it cannot be read. */
+  ) => Promise<{
+    ok: boolean;
+    txRef?: string;
+    error?: string;
+    /** The call threw: the payment may still have been broadcast. Never re-send on this. */
+    indeterminate?: boolean;
+  }>;
+  /**
+   * Largest single-account balance in NIM, or null when none can be read.
+   * A transaction is paid from one account, so this - not the total - is what
+   * an amount has to fit inside.
+   */
   getBalance: () => Promise<number | null>;
-  /** Raw account data from the configured NIM RPC. */
+  /** Cached per-account snapshots from the last read. Empty until one runs. */
+  balances: NimAccountSnapshot[];
+  /** Sum across every listed account. For display only; nothing can spend it at once. */
+  totalNim: number | null;
+  /** Reads every address listAccounts() returned, in parallel. */
+  getAccountSnapshots: (force?: boolean) => Promise<NimAccountSnapshot[]>;
+  /** Raw account data for the primary address. */
   getAccountSnapshot: () => Promise<NimAccountSnapshot | null>;
   /** Block height of the network the Pay host is on, or null when unreadable. */
   getBlockNumber: () => Promise<number | null>;
@@ -51,6 +69,13 @@ export interface NimAccountSnapshot {
   blockNumber: number | null;
 }
 
+/** Addresses read per refresh. The public RPC is rate limited; wallets hold few accounts. */
+const MAX_ACCOUNTS_QUERIED = 5;
+/** Reuse window, so several components mounting at once make one round trip. */
+const SNAPSHOT_TTL_MS = 10_000;
+
+const normalize = (address: string) => address.replace(/\s+/g, "").toUpperCase();
+
 const WalletContext = createContext<WalletState | null>(null);
 
 export function isErrorResponse(v: unknown): v is { error: { type: string; message: string } } {
@@ -61,6 +86,8 @@ export function NimiqWalletProvider({ children }: { children: ReactNode }) {
   const [provider, setProvider] = useState<NimiqProvider | null>(null);
   const [accounts, setAccounts] = useState<string[]>([]);
   const [network, setNetwork] = useState<string | null>(null);
+  const [balances, setBalances] = useState<NimAccountSnapshot[]>([]);
+  const snapshotCache = useRef<{ at: number; key: string; data: NimAccountSnapshot[] } | null>(null);
   const [status, setStatus] = useState<WalletStatus>("initializing");
   const [error, setError] = useState<string | null>(null);
 
@@ -86,7 +113,7 @@ export function NimiqWalletProvider({ children }: { children: ReactNode }) {
       }
       setStatus("ready");
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = formatProviderError(e, "could not reach the Nimiq Pay host");
       const noHost =
         msg.toLowerCase().includes("nimiq pay") ||
         msg.toLowerCase().includes("window.nimiq") ||
@@ -126,31 +153,35 @@ export function NimiqWalletProvider({ children }: { children: ReactNode }) {
       recipient: string,
       valueLuna: number,
       memo: string
-    ): Promise<{ ok: boolean; txRef?: string; error?: string }> => {
+    ): Promise<{ ok: boolean; txRef?: string; error?: string; indeterminate?: boolean }> => {
       if (!provider) return { ok: false, error: "wallet not connected" };
       setStatus("signing");
       try {
-        const bytes = new TextEncoder().encode(memo);
-        const dataHex = Array.from(bytes)
-          .map((b) => b.toString(16).padStart(2, "0"))
-          .join("");
         const res = await provider.sendBasicTransactionWithData({
           recipient,
           value: valueLuna,
-          data: dataHex,
+          // Plain text, not hex: Nimiq Pay encodes it into the transaction
+          // itself. Passing hex made the host encode that string in turn, which
+          // doubled its length past the 64-byte recipient-data cap and came
+          // back as "Transaction invalidated during transaction".
+          data: memo,
         });
         if (isErrorResponse(res)) {
-          setError(res.error.message);
-          return { ok: false, error: res.error.message };
+          const msg = formatProviderError(res, "the payment was declined");
+          setError(msg);
+          return { ok: false, error: msg };
         }
         setError(null);
         // Hosts return either the transaction hash or the serialized
         // transaction; the server resolves both to a hash.
         return { ok: true, txRef: typeof res === "string" ? res : undefined };
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
+        // The bridge threw rather than answering. The host may well have
+        // broadcast the transaction already, so this is not a refusal.
+        console.error("sendPayTransaction failed", e);
+        const msg = formatProviderError(e, "the payment could not be confirmed with the wallet");
         setError(msg);
-        return { ok: false, error: msg };
+        return { ok: false, error: msg, indeterminate: true };
       } finally {
         setStatus((s) => (s === "signing" ? "ready" : s));
       }
@@ -158,47 +189,113 @@ export function NimiqWalletProvider({ children }: { children: ReactNode }) {
     [provider]
   );
 
+  /**
+   * listAccounts() returns addresses only - the SDK exposes no balance method -
+   * so each address is resolved against the configured NIM RPC. One block-height
+   * read is shared by all of them, the per-account reads run in parallel, and a
+   * single failed address yields that entry rather than the whole batch.
+   */
+  const getAccountSnapshots = useCallback(
+    async (force = false): Promise<NimAccountSnapshot[]> => {
+      if (!provider || accounts.length === 0) return [];
+
+      const seen = new Set<string>();
+      const targets = accounts
+        .filter((address) => {
+          const key = normalize(address);
+          if (!key || seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        })
+        .slice(0, MAX_ACCOUNTS_QUERIED);
+      if (targets.length === 0) return [];
+
+      const cacheKey = targets.map(normalize).join("|");
+      const cached = snapshotCache.current;
+      if (
+        !force &&
+        cached &&
+        cached.key === cacheKey &&
+        Date.now() - cached.at < SNAPSHOT_TTL_MS
+      ) {
+        return cached.data;
+      }
+
+      try {
+        provider.setRPCUrl(nimRpcUrlFor(network));
+        const [blockNumber, results] = await Promise.all([
+          provider.getBlockNumber().catch(() => null),
+          Promise.all(
+            targets.map(async (address) => {
+              try {
+                // The SDK's RPC client unwraps the Albatross `{ data, metadata }`
+                // envelope, so this resolves to the account record itself.
+                const account = await provider.request<{
+                  address?: string;
+                  balance?: number | string;
+                  type?: string;
+                } | null>({ method: "getAccountByAddress", params: [address] });
+                return { address, account };
+              } catch (e) {
+                console.warn("getAccountByAddress failed", address, e);
+                return { address, account: null };
+              }
+            })
+          ),
+        ]);
+
+        const snapshots = results.flatMap(({ address, account }) => {
+          const luna = account?.balance;
+          if (luna === undefined || luna === null) return [];
+          const balanceLuna = Number(luna);
+          const balanceNim = balanceLuna / NIM_DECIMALS;
+          // A balance we cannot read must not be reported as zero.
+          if (!Number.isFinite(balanceLuna) || !Number.isFinite(balanceNim)) return [];
+          return [
+            {
+              address: account?.address ?? address,
+              balanceLuna,
+              balanceNim,
+              // Anything other than "basic" can hold funds that are not
+              // spendable yet, such as a vesting contract's unreleased amount.
+              accountType: account?.type ?? "unknown",
+              blockNumber,
+            },
+          ];
+        });
+
+        snapshotCache.current = { at: Date.now(), key: cacheKey, data: snapshots };
+        setBalances(snapshots);
+        return snapshots;
+      } catch (e) {
+        console.warn("getAccountSnapshots failed", e);
+        return [];
+      }
+    },
+    [provider, accounts, network]
+  );
+
   const getAccountSnapshot = useCallback(async (): Promise<NimAccountSnapshot | null> => {
-    const address = accounts[0];
-    if (!provider || !address) return null;
-    try {
-      provider.setRPCUrl(nimRpcUrlFor(network));
-      // The SDK's RPC client unwraps the Albatross `{ data, metadata }` envelope,
-      // so this resolves to the account record itself. Balance is in Luna.
-      const [account, blockNumber] = await Promise.all([
-        provider.request<{
-          address?: string;
-          balance?: number | string;
-          type?: string;
-        } | null>({
-          method: "getAccountByAddress",
-          params: [address],
-        }),
-        provider.getBlockNumber(),
-      ]);
-      const luna = account?.balance;
-      if (luna === undefined || luna === null) return null;
-      const balanceLuna = Number(luna);
-      const balanceNim = balanceLuna / NIM_DECIMALS;
-      if (!Number.isFinite(balanceLuna) || !Number.isFinite(balanceNim)) return null;
-      return {
-        address: account?.address ?? address,
-        balanceLuna,
-        balanceNim,
-        accountType: account?.type ?? "unknown",
-        blockNumber,
-      };
-    } catch (e) {
-      // A balance we cannot read must not be reported as zero.
-      console.warn("getAccountSnapshot failed", e);
-      return null;
-    }
-  }, [provider, accounts, network]);
+    const snapshots = await getAccountSnapshots();
+    return snapshots[0] ?? null;
+  }, [getAccountSnapshots]);
 
   const getBalance = useCallback(async (): Promise<number | null> => {
-    const snapshot = await getAccountSnapshot();
-    return snapshot?.balanceNim ?? null;
-  }, [getAccountSnapshot]);
+    const snapshots = await getAccountSnapshots();
+    if (snapshots.length === 0) return null;
+    // Highest single account, not the sum: one transaction spends from one account.
+    return snapshots.reduce((best, s) => Math.max(best, s.balanceNim), 0);
+  }, [getAccountSnapshots]);
+
+  useEffect(() => {
+    // Warm the balances once the host hands over its accounts, so consumers can
+    // read wallet.balances without each firing its own request.
+    if (!provider || accounts.length === 0) return;
+    // Fetching account state is exactly the external read an effect is for; the
+    // state it sets lands asynchronously, not during this render.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void getAccountSnapshots();
+  }, [provider, accounts, getAccountSnapshots]);
 
   const getBlockNumber = useCallback(async (): Promise<number | null> => {
     if (!provider) return null;
@@ -209,6 +306,11 @@ export function NimiqWalletProvider({ children }: { children: ReactNode }) {
       return null;
     }
   }, [provider]);
+
+  const totalNim = useMemo(
+    () => (balances.length === 0 ? null : balances.reduce((sum, b) => sum + b.balanceNim, 0)),
+    [balances]
+  );
 
   const value = useMemo<WalletState>(
     () => ({
@@ -221,6 +323,9 @@ export function NimiqWalletProvider({ children }: { children: ReactNode }) {
       signMessage,
       sendPayTransaction,
       getBalance,
+      balances,
+      totalNim,
+      getAccountSnapshots,
       getAccountSnapshot,
       getBlockNumber,
       connect,
@@ -234,6 +339,9 @@ export function NimiqWalletProvider({ children }: { children: ReactNode }) {
       signMessage,
       sendPayTransaction,
       getBalance,
+      balances,
+      totalNim,
+      getAccountSnapshots,
       getAccountSnapshot,
       getBlockNumber,
       connect,

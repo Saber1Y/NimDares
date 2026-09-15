@@ -32,6 +32,9 @@ type ApiState = {
 type ReconcileState = { phase: "idle" } | { phase: "reconciling" } | { phase: "done"; message: string };
 type ModeFilter = "all" | "solo" | "team" | "arena";
 
+/** Block-height refresh interval for the console HUD. */
+const HOST_BLOCK_POLL_MS = 30_000;
+
 export default function Dashboard() {
   const { status: walletStatus, address, network, error, getBlockNumber } = useNimiqWallet();
   const [hostBlock, setHostBlock] = useState<number | null>(null);
@@ -84,16 +87,17 @@ export default function Dashboard() {
   useEffect(() => {
     if (walletStatus !== "ready") return;
     let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
     const refresh = async () => {
       const n = await getBlockNumber();
       if (!cancelled) setHostBlock(n);
     };
     void refresh();
-    timer = setInterval(() => void refresh(), 10_000);
+    // Every viewer shares one public RPC with a per-window request cap, and a
+    // block height on a HUD does not need second-level freshness.
+    const timer = setInterval(() => void refresh(), HOST_BLOCK_POLL_MS);
     return () => {
       cancelled = true;
-      if (timer) clearInterval(timer);
+      clearInterval(timer);
     };
   }, [walletStatus, getBlockNumber]);
 
@@ -147,10 +151,7 @@ export default function Dashboard() {
         className="flex flex-wrap items-end justify-between gap-6"
       >
         <div>
-          <p className="font-mono text-[11px] uppercase tracking-[0.22em] text-primary">
-            /operator-console
-          </p>
-          <h1 className="mt-3 text-4xl font-semibold tracking-[-0.05em] md:text-5xl">
+          <h1 className="text-4xl font-semibold tracking-[-0.05em] md:text-5xl">
             Your dares
           </h1>
           <p className="mt-3 max-w-xl text-muted-foreground">

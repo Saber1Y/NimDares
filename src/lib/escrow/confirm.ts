@@ -77,8 +77,17 @@ async function settle(
       txHash: hash,
     };
   }
-  if (strip(tx.fromAddress) !== strip(payer)) {
-    return { status: "rejected", error: "payment came from a different address", txHash: hash };
+  // Nimiq Pay signs with one account and can pay from another, so the sender is
+  // not required to equal the address that created the dare. The deposit still
+  // has to name this stake in its memo; only a memo-less deposit has to come
+  // from the owner, because the sender is then the sole thing tying it here.
+  const memoMatches = tx.memo ? memoRef(tx.memo) === (seat ? seat.id : dare.id) : false;
+  if (!memoMatches && strip(tx.fromAddress) !== strip(payer)) {
+    return {
+      status: "rejected",
+      error: "this transaction does not reference this stake",
+      txHash: hash,
+    };
   }
 
   // One deposit settles one stake, across every dare and room seat.
