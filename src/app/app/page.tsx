@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { motion } from "motion/react";
 import {
@@ -10,8 +10,6 @@ import {
   CircleAlert,
   Swords,
   Hourglass,
-  RefreshCw,
-  Shield,
   Globe,
   Users,
 } from "lucide-react";
@@ -20,6 +18,7 @@ import { HudPanel } from "@/components/ui/hud-panel";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { dareStatusLabel, verdictLabel } from "@/lib/labels";
 import { timeLeft } from "@/lib/format";
 import type { Dare, LedgerSummary } from "@/lib/types";
 
@@ -29,22 +28,20 @@ type ApiState = {
   summary: LedgerSummary | null;
 };
 
-type ReconcileState = { phase: "idle" } | { phase: "reconciling" } | { phase: "done"; message: string };
 type ModeFilter = "all" | "solo" | "team" | "arena";
 
-/** Block-height refresh interval for the console HUD. */
-const HOST_BLOCK_POLL_MS = 30_000;
-
 export default function Dashboard() {
-  const { status: walletStatus, address, network, error, getBlockNumber } = useNimiqWallet();
-  const [hostBlock, setHostBlock] = useState<number | null>(null);
+  const { status: walletStatus, address, balances, getAccountSnapshots } = useNimiqWallet();
+  // What the player can actually stake: the largest single account, since a
+  // stake is paid from one account.
+  const availableNim =
+    balances.length > 0 ? balances.reduce((best, b) => Math.max(best, b.balanceNim), 0) : null;
   const [api, setApi] = useState<ApiState>({
     status: "loading",
     dares: [],
     summary: null,
   });
   const [rooms, setRooms] = useState<Dare[]>([]);
-  const [reconcile, setReconcile] = useState<ReconcileState>({ phase: "idle" });
   const [modeFilter, setModeFilter] = useState<ModeFilter>("all");
 
   useEffect(() => {
@@ -86,46 +83,8 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (walletStatus !== "ready") return;
-    let cancelled = false;
-    const refresh = async () => {
-      const n = await getBlockNumber();
-      if (!cancelled) setHostBlock(n);
-    };
-    void refresh();
-    // Every viewer shares one public RPC with a per-window request cap, and a
-    // block height on a HUD does not need second-level freshness.
-    const timer = setInterval(() => void refresh(), HOST_BLOCK_POLL_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [walletStatus, getBlockNumber]);
-
-  const runReconcile = useCallback(async () => {
-    if (!address || walletStatus !== "ready") return;
-    setReconcile({ phase: "reconciling" });
-    try {
-      const res = await fetch("/api/wallet/reconcile", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ asset: "NIM", address }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.ok) {
-        setReconcile({ phase: "done", message: data?.error ?? `HTTP ${res.status}` });
-        return;
-      }
-      const ledgerBal = data.reconciled
-        ? `${(Number(data.ledger) / 100_000).toFixed(2)} NIM`
-        : "N/A";
-      setReconcile({
-        phase: "done",
-        message: `on-chain: ${data.reconciled ? ledgerBal : "unreachable"} · store: ${data.store}`,
-      });
-    } catch (e) {
-      setReconcile({ phase: "done", message: e instanceof Error ? e.message : String(e) });
-    }
-  }, [address, walletStatus]);
+    void getAccountSnapshots();
+  }, [walletStatus, getAccountSnapshots]);
 
   const filteredDares = api.dares.filter((dare) => {
     if (modeFilter === "all") return true;
@@ -162,9 +121,6 @@ export default function Dashboard() {
         <div className="flex flex-wrap items-center gap-3">
           <Button href="/app/create">
             New dare <Plus className="size-4" />
-          </Button>
-          <Button href="/app/admin" variant="ghost">
-            <Shield className="size-4" /> Admin
           </Button>
         </div>
       </motion.div>
@@ -205,7 +161,7 @@ export default function Dashboard() {
             })}
           </div>
           <p className="mt-3 font-mono text-[11px] text-muted-foreground">
-            &gt; {modeFilter === "all" ? "showing every commitment and open arena table" : `showing ${modeFilter} commitments`}
+            &gt; {modeFilter === "all" ? "showing every dare and open arena table" : `showing ${modeFilter} dares`}
           </p>
         </HudPanel>
       </motion.div>
@@ -217,88 +173,55 @@ export default function Dashboard() {
         transition={{ delay: 0.2, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
       >
         <HudPanel
-          label="Wallet link"
+          label="Wallet"
           icon={<Wallet className="size-3.5" />}
-          badge={walletStatus === "ready" ? "REAL / LIVE" : undefined}
+          badge={walletStatus === "ready" ? "CONNECTED" : undefined}
         >
           {walletStatus === "initializing" && (
-            <p className="font-mono text-sm text-muted-foreground">
-              &gt; waiting for Nimiq Pay host… <span className="nd-live-dot ml-1 inline-block size-1.5 rounded-full align-middle" />
+            <p className="text-sm text-muted-foreground">
+              Connecting to your wallet…
+              <span className="nd-live-dot ml-2 inline-block size-1.5 rounded-full align-middle" />
             </p>
           )}
           {walletStatus === "ready" && (
-            <div className="grid gap-6 md:grid-cols-3">
+            <div className="grid gap-6 sm:grid-cols-2">
               <div className="border-t border-border pt-3">
-                <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Address</p>
+                <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                  Your wallet
+                </p>
                 <p className="mt-3 break-all font-mono text-sm text-foreground">{address}</p>
               </div>
               <div className="border-t border-border pt-3">
-                <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Network</p>
-                <p className="mt-3 font-mono text-sm text-primary">{network ?? "nimiq"}</p>
-                <p className="mt-1 font-mono text-[11px] text-muted-foreground">
-                  {hostBlock !== null ? `chain head #${hostBlock.toLocaleString()}` : "reading chain head…"}
+                <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                  Available to stake
+                </p>
+                <p className="mt-3 font-mono text-sm text-primary">
+                  {availableNim !== null ? `${availableNim.toFixed(2)} NIM` : "—"}
                 </p>
               </div>
-              <div className="border-t border-border pt-3">
-                <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Account</p>
-                <p className="mt-3 font-mono text-sm text-foreground">linked &amp; signing</p>
-              </div>
-            </div>
-          )}
-          {walletStatus === "ready" && (
-            <div className="mt-5 border-t border-border pt-4">
-              <div className="flex flex-wrap items-center gap-3">
-                <Button
-                  variant="secondary"
-                  onClick={() => void runReconcile()}
-                  disabled={reconcile.phase === "reconciling"}
-                >
-                  <RefreshCw className={`size-4 ${reconcile.phase === "reconciling" ? "animate-spin" : ""}`} />
-                  {reconcile.phase === "reconciling" ? "Reconciling…" : "Reconcile on-chain balance"}
-                </Button>
-                {reconcile.phase === "done" && (
-                  <StatusPill label={reconcile.message} tone="neutral" />
-                )}
-              </div>
-              <p className="mt-3 font-mono text-[11px] text-muted-foreground">
-                &gt; refreshes the escrow ledger from the live Nimiq/Polygon chain
-              </p>
             </div>
           )}
           {walletStatus === "no-host" && (
-            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-              <div className="max-w-xl">
-                <p className="text-sm font-medium text-foreground">
-                  Development mode - Nimiq Pay host not detected.
-                </p>
-                <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                  `window.nimiq` is undefined outside the Pay mini-app shell.
-                  NIM funding is unavailable here. USDT funding falls back to
-                  the browser EVM bridge on {error ? "error" : "Amoy"} when
-                  MetaMask is installed.
-                </p>
-                {error && (
-                  <p className="mt-2 font-mono text-[11px] text-red-400">ERR: {error}</p>
-                )}
-              </div>
-              <StatusPill label="DEV / SIMULATED" tone="neutral" />
-            </div>
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              Open NimDares inside the Nimiq Pay app to stake and get paid.
+            </p>
           )}
           {walletStatus === "error" && (
             <div className="flex items-center gap-3">
               <CircleAlert className="size-4 text-red-400" />
-              <p className="font-mono text-sm text-red-400">WALLET ERROR: {error}</p>
+              <p className="text-sm text-red-400">
+                Your wallet could not be reached. Reopen the app and try again.
+              </p>
             </div>
           )}
         </HudPanel>
       </motion.div>
 
       {/* metric row */}
-      <div className="grid grid-cols-2 gap-8 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-8 md:grid-cols-3">
         {[
           { label: "Active dares", value: api.summary ? String(api.summary.active) : null },
-          { label: "Escrowed NIM", value: api.summary ? api.summary.escrowedNim.toFixed(2) : null },
-          { label: "Escrowed USDT", value: api.summary ? api.summary.escrowedUsdt.toFixed(2) : null },
+          { label: "NIM at stake", value: api.summary ? api.summary.escrowedNim.toFixed(2) : null },
           { label: "Resolved", value: api.summary ? String(api.summary.won + api.summary.lost) : null },
         ].map((m, i) => (
           <motion.div
@@ -362,9 +285,9 @@ export default function Dashboard() {
         transition={{ delay: 0.55, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
       >
         <HudPanel
-          label="Dare ledger"
+          label="Your dares"
           icon={<Swords className="size-3.5" />}
-          badge={api.status === "ok" ? "LEDGER / SYNCED" : undefined}
+          badge={api.status === "ok" ? "UP TO DATE" : undefined}
         >
           {api.status === "loading" && (
             <div className="flex flex-col gap-4">
@@ -383,7 +306,7 @@ export default function Dashboard() {
           {api.status === "ok" && filteredDares.length === 0 && (
             <EmptyLedger
               icon={<Swords className="size-6 text-muted-foreground" />}
-              title="No dares on the ledger"
+              title="No dares yet"
               body="Your first dare is one stake away. Escrow opens the moment funding lands."
             />
           )}
@@ -410,11 +333,11 @@ function RoomCard({ dare }: { dare: Dare }) {
       <div className="min-w-0">
         <div className="flex items-center gap-3">
           <p className="truncate font-medium text-foreground">{dare.title}</p>
-          <StatusPill label={dare.status} tone={live ? "live" : "neutral"} live={live} />
+          <StatusPill label={dareStatusLabel(dare.status)} tone={live ? "live" : "neutral"} live={live} />
         </div>
         <p className="mt-1 line-clamp-1 font-mono text-[11px] text-muted-foreground">
           {dare.asset} · {dare.amount.toLocaleString("en-US", { maximumFractionDigits: 2 })}
-          {" "}per seat · verifier {dare.verifierKind} · {timeLeft(dare.deadline)}
+          {" "}per seat · {timeLeft(dare.deadline)}
         </p>
       </div>
       <div className="flex items-center gap-3 md:shrink-0">
@@ -471,16 +394,16 @@ function DareRow({ dare }: { dare: Dare }) {
           {dare.maxCapacity > 1 && (
             <StatusPill label={dare.isPrivate ? "TEAM" : "ARENA"} tone="neutral" />
           )}
-          <StatusPill label={dare.status} tone={tone} live={tone === "live"} />
+          <StatusPill label={dareStatusLabel(dare.status)} tone={tone} live={tone === "live"} />
         </div>
         <p className="mt-1 line-clamp-1 font-mono text-[11px] text-muted-foreground">
-          {dare.asset} · {dare.amount.toLocaleString("en-US", { maximumFractionDigits: 2 })} · verifier {dare.verifierKind} · {timeLeft(dare.deadline)}
+          {dare.asset} · {dare.amount.toLocaleString("en-US", { maximumFractionDigits: 2 })} · {timeLeft(dare.deadline)}
         </p>
       </div>
       <div className="flex items-center gap-3 md:shrink-0">
         {dare.funded ? (
           <StatusPill
-            label={dare.verifierResult?.status ?? "WAITING"}
+            label={verdictLabel(dare.verifierResult?.status ?? "WAITING")}
             tone={dare.verifierResult?.status === "VALID" ? "success" : dare.verifierResult?.status === "INVALID" ? "failed" : "neutral"}
           />
         ) : dare.status === "PENDING_FUNDING" ? (

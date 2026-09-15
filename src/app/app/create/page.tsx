@@ -13,7 +13,6 @@ import {
   Users,
   Globe,
   Hash,
-  Copy,
   Loader2,
 } from "lucide-react";
 import { useNimiqWallet } from "@/components/nimiq-provider";
@@ -208,7 +207,7 @@ export default function CreateDare() {
         setState({
           ...created,
           step: "failed",
-          error: data.error ?? "could not confirm the escrow deposit",
+          error: data.error ?? "we could not confirm your payment",
         });
         return;
       }
@@ -424,11 +423,11 @@ export default function CreateDare() {
                 <Loader2 className="size-10 text-primary animate-spin" />
                 <div>
                   <p className="text-lg font-semibold text-foreground">
-                    Confirming funds on-chain
+                    Confirming your payment
                   </p>
                   <p className="mt-2 text-sm text-muted-foreground">
                     Your {c.amount} {c.asset} payment was sent. Waiting for the
-                    Nimiq network to confirm the deposit into escrow.
+                    network to confirm it.
                   </p>
                 </div>
                 <p className="font-mono text-[11px] text-muted-foreground">
@@ -462,12 +461,12 @@ export default function CreateDare() {
             icon={<Check className="size-3.5" />}
             badge={
               isPaid
-                ? "LIVE / ON-CHAIN"
+                ? "LIVE"
                 : isConfirming
                   ? "CONFIRMING"
                   : isRoom
-                    ? "LOBBY"
-                    : "PENDING / FUNDING"
+                    ? "OPEN TO JOIN"
+                    : "AWAITING PAYMENT"
             }
           >
             <div className="flex flex-col gap-6">
@@ -497,7 +496,7 @@ export default function CreateDare() {
                   <Check className="mt-0.5 size-5 shrink-0 text-primary" />
                   <p className="text-sm leading-relaxed text-foreground">
                     {isRoom
-                      ? `Your seat is locked. Your ${c.amount} ${c.asset} is on-chain in escrow. The room plays once every seat is funded or the deadline passes.`
+                      ? `Your seat is locked and your ${c.amount} ${c.asset} is held safely. The room plays once every seat is paid or the deadline passes.`
                       : `Your ${c.amount} ${c.asset} stake is on-chain in escrow and the dare is live. Keep the evidence handy - you submit the proof before the deadline.`}
                   </p>
                 </div>
@@ -505,9 +504,8 @@ export default function CreateDare() {
                 <div className="flex items-start gap-3 rounded-2xl border border-primary/30 bg-primary/5 px-5 py-4">
                   <Loader2 className="mt-0.5 size-5 shrink-0 text-primary animate-spin" />
                   <p className="text-sm leading-relaxed text-foreground">
-                    Payment sent. Confirming {c.amount} {c.asset} on the Nimiq
-                    network. The dare goes live once the deposit is seen in
-                    escrow.
+                    Payment sent. Confirming it now - your dare goes live as soon as
+                    the payment clears.
                   </p>
                 </div>
               ) : (
@@ -516,13 +514,13 @@ export default function CreateDare() {
                     <Wallet className="mt-0.5 size-5 shrink-0 text-amber-300" />
                     <p className="text-sm leading-relaxed text-foreground">
                       {c.step === "funding"
-                        ? `Confirm the ${c.amount} ${c.asset} payment in the Nimiq Pay sheet. The dare only goes live once the deposit is seen on-chain.`
-                        : `Your dare is staged but not funded yet. Confirm ${c.amount} ${c.asset} in Nimiq Pay to lock the stake into escrow.`}
+                        ? `Approve the ${c.amount} ${c.asset} payment in your wallet. The dare goes live once the payment clears.`
+                        : `Your dare is ready but not paid for yet. Approve ${c.amount} ${c.asset} in your wallet to lock in your stake.`}
                     </p>
                   </div>
                   {c.error && (
                     <p className="font-mono text-[11px] text-red-400">
-                      ERR: {c.error}
+                      {c.error}
                     </p>
                   )}
                   <div className="flex flex-wrap items-center gap-3">
@@ -553,40 +551,16 @@ export default function CreateDare() {
                     >
                       <Wallet className="size-4" />
                       {isConfirming
-                        ? "Confirming on-chain…"
+                        ? "Confirming payment…"
                         : c.paymentSent
-                          ? "Recheck escrow deposit"
-                          : `Confirm ${c.amount} ${c.asset} in Pay`}
+                          ? "Check payment again"
+                          : `Pay ${c.amount} ${c.asset}`}
                       <ArrowRight className="size-4" />
                     </Button>
                     <p className="font-mono text-[11px] text-muted-foreground">
-                      &gt; signed by your Nimiq identity; escrow:{" "}
-                      {c.escrowConfigured ? "hot" : "unconfigured"}
+                      &gt; your wallet asks you to approve before anything moves
                     </p>
                   </div>
-                  {c.escrowConfigured && c.escrowAddress && (
-                    <div className="border-t border-border pt-4">
-                      <button
-                        type="button"
-                        className="flex w-full items-start gap-2 rounded-lg px-1 py-0.5 text-left hover:bg-muted/20"
-                        onClick={() =>
-                          void navigator.clipboard
-                            ?.writeText(c.escrowAddress!)
-                            .catch(() => {})
-                        }
-                      >
-                        <Copy className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-                        <span className="flex flex-col gap-1">
-                          <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-                            Escrow address (tap to copy · manual fallback)
-                          </span>
-                          <span className="break-all font-mono text-xs text-foreground/80">
-                            {c.escrowAddress}
-                          </span>
-                        </span>
-                      </button>
-                    </div>
-                  )}
                 </div>
               )}
               {isRoom && c.roomCode && (
@@ -620,12 +594,6 @@ export default function CreateDare() {
   // Live affordability check against the account the stake would be paid from.
   // A balance we could not read stays null, which never reads as "insufficient" -
   // the wallet's own approval sheet is the real gate.
-  const nimSnapshot =
-    nimSnapshots.length > 0
-      ? nimSnapshots.reduce((best, snap) =>
-          snap.balanceNim > best.balanceNim ? snap : best,
-        )
-      : null;
   const stakeNim = Number(amount);
   const stakeIsNumber = Number.isFinite(stakeNim) && stakeNim > 0;
   // The highest single account, matching getBalance(): a stake is paid from one
@@ -822,71 +790,22 @@ export default function CreateDare() {
               </Field>
             </div>
             {asset === "NIM" && (
-              <div className="rounded-xl border border-border/70 bg-black/20 px-4 py-3 font-mono text-[11px]">
-                <div className="mb-2 flex items-center justify-between gap-3">
-                  <span className="text-muted-foreground">
-                    LIVE TESTNET ACCOUNT
-                  </span>
-                  <span
-                    className={
-                      nimSnapshot?.accountType === "basic"
-                        ? "text-primary"
-                        : "text-amber-300"
-                    }
-                  >
-                    {nimSnapshotLoading
-                      ? "reading…"
-                      : (nimSnapshot?.accountType ?? "unavailable")}
-                  </span>
-                </div>
-                <div className="grid gap-1 text-muted-foreground sm:grid-cols-2">
-                  <span>
-                    spendable:{" "}
-                    <strong className="text-foreground">
-                      {nimSnapshot
-                        ? `${nimSnapshot.balanceNim.toFixed(5)} NIM`
-                        : "--"}
-                    </strong>
-                  </span>
-                  <span>
-                    raw:{" "}
-                    <strong className="text-foreground">
-                      {nimSnapshot ? `${nimSnapshot.balanceLuna} luna` : "--"}
-                    </strong>
-                  </span>
-                  <span>
-                    block:{" "}
-                    <strong className="text-foreground">
-                      {nimSnapshot?.blockNumber ?? "--"}
-                    </strong>
-                  </span>
-                  <span
-                    className="truncate"
-                    title={nimSnapshot?.address ?? undefined}
-                  >
-                    address:{" "}
-                    <strong className="text-foreground">
-                      {nimSnapshot?.address ?? wallet.address ?? "--"}
-                    </strong>
-                  </span>
-                </div>
-                {insufficient && (
-                  <p className="mt-2 text-red-400">
-                    &gt; staking {stakeNim} NIM needs {shortfallNim.toFixed(5)}{" "}
-                    NIM more than this account holds.
-                  </p>
-                )}
-                {nimSnapshot?.accountType !== "basic" && nimSnapshot && (
-                  <p className="mt-2 text-amber-300/90">
-                    &gt; this account is not spendable by a basic NIM payment;
-                    Pay may show its value separately.
-                  </p>
-                )}
+              <div className="flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-black/20 px-4 py-3">
+                <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
+                  Available to stake
+                </span>
+                <span className="font-mono text-sm text-primary">
+                  {nimSnapshotLoading && availableNim === null
+                    ? "checking…"
+                    : availableNim !== null
+                      ? `${availableNim.toFixed(2)} NIM`
+                      : "—"}
+                </span>
               </div>
             )}
             <p className="font-mono text-[11px] text-muted-foreground">
-              &gt; deadline must be within 90 days. Late or missing proof is
-              slashed into the slash pool.
+              &gt; the deadline can be up to 90 days away. Miss it, or fail the
+              proof, and your stake is forfeited.
             </p>
           </div>
         </HudPanel>
@@ -925,7 +844,7 @@ export default function CreateDare() {
 
       {state.phase === "error" && (
         <HudPanel label="Error" icon={<CircleAlert className="size-3.5" />}>
-          <p className="font-mono text-sm text-red-400">ERR: {state.message}</p>
+          <p className="font-mono text-sm text-red-400">{state.message}</p>
         </HudPanel>
       )}
 

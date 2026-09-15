@@ -25,6 +25,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import type { Dare, Participant } from "@/lib/types";
 import { NIM_MAX_TX_DATA_BYTES, MAX_PROOF_ATTEMPTS } from "@/lib/config";
 import { formatProviderError } from "@/lib/errors";
+import { dareStatusLabel, payoutLabel, verdictLabel } from "@/lib/labels";
 
 type SubmitState =
   | { phase: "idle"; error: string | null }
@@ -101,7 +102,6 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
   const [missing, setMissing] = useState(false);
   const [proofLink, setProofLink] = useState("");
   const [submit, setSubmit] = useState<SubmitState>({ phase: "idle", error: null });
-  const [copied, setCopied] = useState(false);
   const [codeCopied, setCodeCopied] = useState(false);
   const [funding, setFunding] = useState<{ phase: "idle" } | { phase: "sending"; serialized: string | null }>(
     { phase: "idle" }
@@ -522,7 +522,7 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
           <ArrowLeft className="size-4" /> Console
         </Button>
         <div className="mt-5 flex flex-wrap items-center gap-3">
-          <StatusPill label={cur.status} tone={tone} live={tone === "live"} />
+          <StatusPill label={dareStatusLabel(cur.status)} tone={tone} live={tone === "live"} />
           {isRoom && <StatusPill label={cur.isPrivate ? "TEAM ROOM" : "ARENA ROOM"} tone="neutral" />}
         </div>
         <h1 className="mt-3 text-4xl font-semibold tracking-[-0.05em] md:text-5xl">
@@ -605,7 +605,7 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
                     <div className="flex shrink-0 items-center gap-2">
                       {p.aiVerdict !== "WAITING" && (
                         <StatusPill
-                          label={p.aiVerdict}
+                          label={verdictLabel(p.aiVerdict)}
                           tone={
                             p.aiVerdict === "VALID"
                               ? "success"
@@ -638,10 +638,10 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
                     </p>
                   </div>
                   {submit.phase === "idle" && submit.error && (
-                    <p className="mt-3 font-mono text-[11px] text-red-400">ERR: {submit.error}</p>
+                    <p className="mt-3 font-mono text-[11px] text-red-400">{submit.error}</p>
                   )}
                   {submit.phase === "done" && submit.message.startsWith("seat reserved") && (
-                    <p className="mt-3 font-mono text-[11px] text-primary">OK: {submit.message}</p>
+                    <p className="mt-3 font-mono text-[11px] text-primary">{submit.message}</p>
                   )}
                 </div>
               )}
@@ -657,7 +657,7 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
         >
-          <HudPanel label="Funding" icon={<Coins className="size-3.5" />} badge={isConfirming ? "CONFIRMING" : "PENDING"}>
+          <HudPanel label="Pay your stake" icon={<Coins className="size-3.5" />} badge={isConfirming ? "CONFIRMING" : "UNPAID"}>
             <div className="flex flex-col gap-4">
               {isConfirming && (
                 <div className="flex items-start gap-3 rounded-2xl border border-primary/30 bg-primary/5 px-5 py-4">
@@ -670,44 +670,22 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
               <p className="text-sm leading-relaxed text-muted-foreground">
                 {isRoom ? (
                   <>
-                    Fund your seat with{" "}
-                    <span className="font-mono text-primary">{formatAmount(cur.amount)} {cur.asset}</span>{" "}
-                    carrying the per-seat memo below. The ledger credits your chair from the
-                    memo when the reconciliation sweeps the escrow.
+                    Pay your seat of{" "}
+                    <span className="font-mono text-primary">
+                      {formatAmount(cur.amount)} {cur.asset}
+                    </span>{" "}
+                    to take your chair. Your stake is held until the room plays out.
                   </>
                 ) : (
                   <>
-                    Send <span className="font-mono text-primary">{formatAmount(cur.amount)} {cur.asset}</span> to
-                    the escrow address. The sweep places the dare once the deposit is observed
-                    on-chain.
+                    Pay your stake of{" "}
+                    <span className="font-mono text-primary">
+                      {formatAmount(cur.amount)} {cur.asset}
+                    </span>{" "}
+                    to start the dare. It is held until you prove you did it.
                   </>
                 )}
               </p>
-              <div className="flex items-center gap-3 rounded-xl border border-border bg-muted/20 px-4 py-3">
-                <p className="flex-1 break-all font-mono text-sm text-foreground">
-                  {cur.escrow?.address ?? "ESCROW NOT CONFIGURED"}
-                </p>
-                {cur.escrow?.address && (
-                  <button
-                    onClick={() => {
-                      navigator.clipboard.writeText(cur.escrow?.address ?? "").catch(() => {});
-                      setCopied(true);
-                      setTimeout(() => setCopied(false), 1500);
-                    }}
-                    className="text-muted-foreground transition-colors hover:text-primary"
-                  >
-                    <Copy className="size-4" />
-                  </button>
-                )}
-              </div>
-              {isRoom && mySeat && (
-                <div className="flex items-center gap-3 rounded-xl border border-border bg-muted/20 px-4 py-3">
-                  <p className="flex-1 break-all font-mono text-xs text-muted-foreground">
-                    memo: <span className="text-primary">nimdares:{mySeat.id}</span>
-                  </p>
-                </div>
-              )}
-              {copied && <StatusPill label="COPIED" tone="live" live />}
               {cur.asset === "NIM" &&
                 wallet.provider &&
                 // "signing" is the wallet sheet being open: keep the panel
@@ -728,7 +706,7 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
                         : `Fund ${formatAmount(cur.amount)} NIM from wallet`}
                   </Button>
                   <p className="font-mono text-[11px] text-muted-foreground">
-                    &gt; signed by the Pay host; the sweep auto-activates once the deposit lands
+                    &gt; your wallet asks you to approve before anything moves
                   </p>
                   <div className="w-full">
                     {insufficientFunds && (
@@ -737,18 +715,12 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
                         {shortfallNim.toFixed(2)} NIM short
                       </p>
                     )}
-                    {funding.phase === "sending" && funding.serialized && (
-                      <p className="font-mono text-[11px] text-primary">
-                        TX SENT TO PAY HOST - {funding.serialized.slice(0, 40)}…
-                      </p>
-                    )}
                     {fundingNote && (
                       <p
                         className={`font-mono text-[11px] ${
                           fundingNote.tone === "error" ? "text-red-400" : "text-primary"
                         }`}
                       >
-                        {fundingNote.tone === "error" ? "ERR: " : "OK: "}
                         {fundingNote.text}
                       </p>
                     )}
@@ -786,21 +758,20 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
           <HudPanel
             label="Verdict"
             icon={<Check className="size-3.5" />}
-            badge={cur.verifierResult.status}
+            badge={verdictLabel(cur.verifierResult.status)}
           >
             <p className="font-mono text-sm leading-relaxed text-foreground">
               {cur.verifierResult.reason}
             </p>
             {typeof cur.verifierResult.confidence === "number" && (
               <p className="mt-3 font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
-                completion score:{" "}
-                <span className="text-primary">{cur.verifierResult.confidence}/100</span>
-                {cur.verifierResult.source ? ` · ${cur.verifierResult.source}` : ""}
+                confidence:{" "}
+                <span className="text-primary">{cur.verifierResult.confidence}%</span>
               </p>
             )}
             {cur.verifierResult.observations && (
               <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-                observed: {cur.verifierResult.observations}
+                What the judge saw: {cur.verifierResult.observations}
               </p>
             )}
             {cur.verifierResult.status === "AMBIGUOUS" && (
@@ -820,8 +791,7 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
             )}
             {cur.payoutStatus && (
               <p className="mt-4 font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
-                payout: <span className="text-primary">{cur.payoutStatus}</span>
-                {cur.payoutTxHash && ` · ${cur.payoutTxHash.slice(0, 18)}…`}
+                payment: <span className="text-primary">{payoutLabel(cur.payoutStatus)}</span>
               </p>
             )}
           </HudPanel>
@@ -909,10 +879,10 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
                 </div>
               )}
               {submit.phase === "idle" && submit.error && (
-                <p className="font-mono text-[11px] text-red-400">ERR: {submit.error}</p>
+                <p className="font-mono text-[11px] text-red-400">{submit.error}</p>
               )}
               {submit.phase === "done" && (
-                <p className="font-mono text-[11px] text-primary">OK: {submit.message}</p>
+                <p className="font-mono text-[11px] text-primary">{submit.message}</p>
               )}
             </div>
           </HudPanel>
@@ -929,7 +899,7 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
           <HudPanel
             label="Your seat proof"
             icon={<VerifierIcon className="size-3.5" />}
-            badge={mySeat.funded ? "SEAT FUNDED" : "FUND SEAT FIRST"}
+            badge={mySeat.funded ? "SEAT PAID" : "PAY YOUR SEAT FIRST"}
           >
             <div className="flex flex-col gap-5">
               {!mySeat.funded ? (
@@ -1006,10 +976,10 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
                 </div>
               )}
               {submit.phase === "idle" && submit.error && (
-                <p className="font-mono text-[11px] text-red-400">ERR: {submit.error}</p>
+                <p className="font-mono text-[11px] text-red-400">{submit.error}</p>
               )}
               {submit.phase === "done" && !submit.message.startsWith("seat reserved") && (
-                <p className="font-mono text-[11px] text-primary">OK: {submit.message}</p>
+                <p className="font-mono text-[11px] text-primary">{submit.message}</p>
               )}
             </div>
           </HudPanel>

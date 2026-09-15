@@ -56,10 +56,10 @@ export default function Landing() {
                 transition={{ delay: 0.3, duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
                 className="mt-8 max-w-xl text-lg leading-relaxed text-muted-foreground"
               >
-                NimDares is a decentralized commitment escrow inside Nimiq Pay.
-                Lock NIM or USDT on any personal goal, submit AI-verified proof
-                when you finish, and the escrow pays you out automatically.
-                Slack, and it sweeps to the slash pool.
+                NimDares puts your own money behind your promises, inside Nimiq
+                Pay. Stake NIM on any personal goal, send a screenshot when you
+                finish, and you get your stake straight back. Fall short and you
+                lose it.
               </motion.p>
               <motion.div
                 initial={{ opacity: 0, y: 12 }}
@@ -84,17 +84,16 @@ export default function Landing() {
             >
               <div className="flex items-center justify-between px-1 pb-3">
                 <span className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-                  <Activity className="size-3.5 text-primary" /> Escrow lifecycle
+                  <Activity className="size-3.5 text-primary" /> How a dare plays out
                 </span>
-                <StatusPill label="REAL / LIVE" tone="live" live />
+                <StatusPill label="EXAMPLE" tone="neutral" />
               </div>
-              <TerminalBlock title="escrow_engine.log">
+              <TerminalBlock title="ship v0 by friday">
                 {[
-                  { kind: "SYS" as const, text: "ESCROW_OPEN 10 NIM staked on \u201cShip v0 by Friday\u201d." },
-                  { kind: "EVENT" as const, text: "PROOF_INTAKE screenshot 2026-09-12_14:02 \u2192 gemini-3.6-flash" },
-                  { kind: "AGENT" as const, text: "ADJUDICATE matches criteria: streak counter, build output, date." },
-                  { kind: "OK" as const, text: "VALID \u2192 payout scheduled. 10.00 NIM \u2192 user wallet." },
-                  { kind: "EVENT" as const, text: "SETTLE escrow signed & broadcast. Hash 0x9f3a\u2026e21" },
+                  { kind: "SYS" as const, text: "You stake 10 NIM on \u201cShip v0 by Friday\u201d." },
+                  { kind: "EVENT" as const, text: "Friday. You send one screenshot as your proof." },
+                  { kind: "AGENT" as const, text: "The judge checks it against the rules you agreed to." },
+                  { kind: "OK" as const, text: "Verified. Your 10 NIM goes straight back to your wallet." },
                 ].map((row, i) => (
                   <motion.div
                     key={row.text}
@@ -114,9 +113,9 @@ export default function Landing() {
         <section className="mx-auto w-full max-w-[1400px] border-t border-border px-5 py-16 md:px-10">
           <motion.div {...fade} className="mx-auto grid max-w-[1160px] grid-cols-2 gap-8 md:grid-cols-4">
             {[
-              { label: "Assets escrowed", value: "NIM · USDT" },
-              { label: "Verifier modes", value: "3" },
-              { label: "Adjudicator uptime", value: "24/7" },
+              { label: "Stake in", value: "NIM" },
+              { label: "Proof", value: "A screenshot" },
+              { label: "Judged", value: "24/7" },
               { label: "Middlemen", value: "0" },
             ].map((m) => (
               <div key={m.label} className="border-t border-border pt-3">
@@ -152,13 +151,13 @@ export default function Landing() {
                   icon: <ScanLine className="size-4" />,
                   label: "02 · PROVE",
                   title: "Evidence, judged",
-                  body: "Screenshot proof, a merged GitHub PR, a logged Strava ride. Gemini vision or a deterministic API checks it against your criteria.",
+                  body: "Send one screenshot of the thing you said you would do. An AI judge checks it against the rules you set when you started.",
                 },
                 {
                   icon: <Swords className="size-4" />,
                   label: "03 · SETTLE",
-                  title: "Escrow decides",
-                  body: "You won: escrow pays your stake back on-chain. You slacked: it is swept to the slash pool, funding the next generation of dares.",
+                  title: "Money moves",
+                  body: "Did it: your stake comes straight back. Did not: you forfeit it, and in a group dare the people who followed through share it.",
                 },
               ].map((step, i) => (
                 <motion.div
@@ -184,23 +183,23 @@ export default function Landing() {
                 Screenshot-proof gaming is dead.
               </h2>
               <p className="mt-5 text-lg leading-relaxed text-muted-foreground">
-                Verifiers compare the evidence against your exact stated criteria
-                and answer one question: did you actually do the thing? Vision
-                understands images; API verifiers read ground truth.
+                The judge compares your screenshot against the exact rules you
+                agreed to when you staked, and answers one question: did you
+                actually do the thing?
               </p>
               <div className="mt-8 flex flex-col gap-3">
-                <StatusPill label="VISION · Gemini 2.5 Flash / Pro" tone="live" live />
-                <StatusPill label="GITHUB · merged PR check" tone="neutral" />
-                <StatusPill label="STRAVA · logged activity check" tone="neutral" />
+                <StatusPill label="Rules agreed up front" tone="live" live />
+                <StatusPill label="Same rules for everyone" tone="neutral" />
+                <StatusPill label="Unclear proof is refunded" tone="neutral" />
               </div>
             </motion.div>
             <motion.div {...fade} transition={{ delay: 0.1, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}>
-              <HudPanel label="Adjudicator verdict" icon={<CircleAlert className="size-3.5" />} badge="REAL / LIVE">
+              <HudPanel label="A ruling, in plain words" icon={<CircleAlert className="size-3.5" />} badge="EXAMPLE">
                 <div className="space-y-4">
-                  <TerminalRow kind="EVENT">VERIFIER vision: image fingerprint 0x58d1…c2f0</TerminalRow>
-                  <TerminalRow kind="AGENT">CRITERIA kinopoisk rating ≥ 8.0 shown; streak days ≥ 7 shown.</TerminalRow>
-                  <TerminalRow kind="OK">VALID — signed verdict 0x33aa…9b11</TerminalRow>
-                  <TerminalRow kind="FAIL">INVALID — reverse-stitched screenshot, duplicate streak row.</TerminalRow>
+                  <TerminalRow kind="EVENT">Screenshot received.</TerminalRow>
+                  <TerminalRow kind="AGENT">Checked: the right goal, inside your dates, not edited.</TerminalRow>
+                  <TerminalRow kind="OK">Verified — your stake comes back.</TerminalRow>
+                  <TerminalRow kind="FAIL">Not verified — the screenshot was from before you started.</TerminalRow>
                 </div>
               </HudPanel>
             </motion.div>
@@ -210,20 +209,23 @@ export default function Landing() {
         {/* VERIFIERS */}
         <section id="verifiers" className="mx-auto w-full max-w-[1400px] border-t border-border px-5 py-24 md:px-10 md:py-32">
           <motion.div {...fade} className="mx-auto max-w-[1160px]">
-            <HudPanel label="Verifier matrix" icon={<GitPullRequest className="size-4" />} badge="DETERMINISTIC + AI">
+            <HudPanel label="What the judge checks" icon={<GitPullRequest className="size-4" />} badge="EVERY DARE">
               <div className="grid gap-8 md:grid-cols-3">
                 {[
                   {
-                    name: "VISION",
-                    detail: "Gemini 2.5 reads screenshots against literal criteria. Ruling is signed and stored on the dare.",
+                    name: "The right thing",
+                    detail:
+                      "Your screenshot has to show the goal you staked on, not something close to it.",
                   },
                   {
-                    name: "GITHUB",
-                    detail: "A merged PR by your account inside the deadline is the evidence. No screenshot, no dispute.",
+                    name: "The right time",
+                    detail:
+                      "Dates in the screenshot have to fall inside the window you set when you created the dare.",
                   },
                   {
-                    name: "STRAVA",
-                    detail: "Your logged activity with the right type on the right day settles the dare on the spot.",
+                    name: "The real thing",
+                    detail:
+                      "Edited or staged screenshots are rejected, and the same screenshot cannot be used twice.",
                   },
                 ].map((v) => (
                   <div key={v.name} className="border-t border-border pt-4">
