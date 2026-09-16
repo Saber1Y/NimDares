@@ -550,7 +550,7 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
         return;
       }
       setSubmit({ phase: "idle", error: null });
-      void submitSeatProof(dataUrl);
+      void (isRoom ? submitSeatProof(dataUrl) : submitProof(dataUrl));
     };
     reader.onerror = () => setSubmit({ phase: "idle", error: "could not read image" });
     reader.readAsDataURL(file);
