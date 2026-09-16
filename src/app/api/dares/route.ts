@@ -65,13 +65,14 @@ export async function GET(req: NextRequest) {
   const owner = req.nextUrl.searchParams.get("owner") ?? undefined;
   const mode = req.nextUrl.searchParams.get("mode");
   const store = getStore();
-  const dares = (await store.listDares(owner)).map(dareToClient);
+  // Without an explicit owner there is nothing safe to list: solo and team
+  // dares are private, and the arena feed is served separately below.
+  const dares = owner
+    ? (await store.listDares(owner)).map((d) => dareToClient(d))
+    : [];
   let rooms: ReturnType<typeof dareToClient>[] = [];
   if (mode === "open") {
-    rooms = (await store.listOpenRooms()).map((d) => {
-      const client = dareToClient(d);
-      return client;
-    });
+    rooms = (await store.listOpenRooms()).map((d) => dareToClient(d));
   }
   const summary = summaryToClient(await store.summary());
   return NextResponse.json({
@@ -166,7 +167,7 @@ export async function POST(req: NextRequest) {
     verifierLink: verifierLink ?? null,
     maxCapacity: cap,
     isPrivate,
-    roomCode: isMulti ? roomCode() : null,
+    roomCode: isMulti && isPrivate ? roomCode() : null,
     evidenceSpec,
   });
 
@@ -194,7 +195,7 @@ export async function POST(req: NextRequest) {
   return NextResponse.json(
     {
       ok: true,
-      dare: dareToClient(dare),
+      dare: dareToClient(dare, { includeRoomCode: true }),
       participants: participant ? [participantToClient(participant)] : [],
       escrow: {
         address: escrowAddress || null,

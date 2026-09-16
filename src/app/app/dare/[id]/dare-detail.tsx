@@ -95,12 +95,29 @@ function shortAddr(a: string): string {
   return `${a.slice(0, 6)}…${a.slice(-4)}`;
 }
 
-export default function DareDetail({ id, initial }: { id: string; initial: Dare | null }) {
+export default function DareDetail({
+  id,
+  initial,
+  inviteCode = null,
+}: {
+  id: string;
+  initial: Dare | null;
+  inviteCode?: string | null;
+}) {
   const wallet = useNimiqWallet();
   const { getAccountSnapshots, balances, status: walletStatus } = wallet;
   const [dare, setDare] = useState<Dare | null>(initial);
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [missing, setMissing] = useState(false);
+  // A private room rendered as the invite-code entrance until the code (or
+  // wallet identity) opens it.
+  const [locked, setLocked] = useState(false);
+  const [gateError, setGateError] = useState<string | null>(null);
+  const [code, setCode] = useState<string>(inviteCode ?? "");
+  const [codeInput, setCodeInput] = useState("");
+  // One wallet-bound signature per page, reused across polls: reads are cheap
+  // and sign-per-read would ping the wallet every six seconds.
+  const [readAuth, setReadAuth] = useState<string | null>(null);
   const [proofLink, setProofLink] = useState("");
   const [submit, setSubmit] = useState<SubmitState>({ phase: "idle", error: null });
   const [codeCopied, setCodeCopied] = useState(false);
@@ -117,18 +134,44 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    const needsReadAuth = initial === null;
+    if (!needsReadAuth || walletStatus !== "ready" || readAuth) return;
+    let cancelled = false;
+    const message = `nimdares:read:${id}:${Date.now()}`;
+    void wallet.signMessage(message).then((sig) => {
+      if (cancelled || !sig) return;
+      setReadAuth(`Nimiq ${sig.publicKey}:${sig.signature}:${base64UrlEncode(message)}`);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [initial, walletStatus, readAuth, id, wallet]);
+
+  useEffect(() => {
     if (dare) return;
     let cancelled = false;
     (async () => {
+      const url = new URL(`/api/dares/${id}`, window.location.origin);
+      if (code) url.searchParams.set("code", code);
+      const headers = readAuth ? { authorization: readAuth } : undefined;
       try {
-        const res = await fetch(`/api/dares/${id}`, { cache: "no-store" });
+        const res = await fetch(url, { cache: "no-store", headers });
         if (cancelled) return;
+        if (res.status === 403) {
+          setLocked(true);
+          setMissing(false);
+          return;
+        }
         if (res.status === 404) {
-          setMissing(true);
+          // Without a signed identity a 404 is just the "hide private solo
+          // dares" answer, not a verdict. Wait for the read signature.
+          if (readAuth) setMissing(true);
           return;
         }
         if (!res.ok) return;
         const data = await res.json();
+        setMissing(false);
+        setLocked(false);
         if (data.dare) setDare(data.dare);
         if (Array.isArray(data.participants)) setParticipants(data.participants);
       } catch {
@@ -138,7 +181,7 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
     return () => {
       cancelled = true;
     };
-  }, [id, dare]);
+  }, [id, dare, code, readAuth]);
 
   useEffect(() => {
     if (walletStatus !== "ready") return;
@@ -150,8 +193,11 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
   useEffect(() => {
     if (!dare) return;
     const load = async () => {
+      const url = new URL(`/api/dares/${dare.id}`, window.location.origin);
+      if (code) url.searchParams.set("code", code);
+      const headers = readAuth ? { authorization: readAuth } : undefined;
       try {
-        const res = await fetch(`/api/dares/${dare.id}`, { cache: "no-store" });
+        const res = await fetch(url, { cache: "no-store", headers });
         if (!res.ok) return;
         const data = await res.json();
         if (data.dare) {
@@ -166,7 +212,7 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
     void load();
     const timer = setInterval(load, 6000);
     return () => clearInterval(timer);
-  }, [dare]);
+  }, [dare, code, readAuth]);
 
   if (missing) {
     return (
@@ -184,6 +230,59 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
           </p>
         </div>
         <Button href="/app">Back to console</Button>
+      </div>
+    );
+  }
+
+  if (locked) {
+    const submitGate = async () => {
+      const trimmed = codeInput.trim();
+      if (!trimmed) {
+        setGateError("enter the invite code for this room");
+        return;
+      }
+      await attemptJoin(trimmed);
+    };
+    return (
+      <div className="mx-auto flex max-w-2xl flex-col gap-6 py-12">
+        <Button href="/app" variant="ghost" className="px-0 text-muted-foreground">
+          <ArrowLeft className="size-4" /> Console
+        </Button>
+        <HudPanel label="Private room" icon={<KeyRound className="size-3.5" />}>
+          <div className="flex flex-col gap-5">
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              This team room is invite-only. Enter the code from your invite
+              link to see it and take a chair.
+            </p>
+            <input
+              value={codeInput}
+              onChange={(e) => {
+                setCodeInput(e.target.value.toUpperCase());
+                setGateError(null);
+              }}
+              placeholder="INVITE CODE"
+              className="hud-input max-w-64 font-mono uppercase tracking-[0.3em]"
+              maxLength={12}
+              autoComplete="one-time-code"
+            />
+            <div className="flex flex-wrap items-center gap-3">
+              <Button
+                type="button"
+                onClick={() => void submitGate()}
+                disabled={joining || walletStatus !== "ready"}
+              >
+                {joining ? "Signing…" : "Join with code"}
+                <KeyRound className="size-4" />
+              </Button>
+              <p className="font-mono text-[11px] text-muted-foreground">
+                &gt; joining only reserves a chair; funding the seat comes next
+              </p>
+            </div>
+            {gateError && (
+              <p className="font-mono text-[11px] text-red-400">&gt; {gateError}</p>
+            )}
+          </div>
+        </HudPanel>
       </div>
     );
   }
@@ -226,6 +325,7 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
   }
 
   const cur = dare;
+  const roomCode = cur.roomCode;
   const isRoom = cur.maxCapacity > 1;
   const mySeat = isRoom ? participants.find((p) => p.userAddress === wallet.address) ?? null : null;
   const attemptsUsed = isRoom ? (mySeat?.proofAttempts ?? 0) : cur.proofAttempts;
@@ -347,7 +447,10 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
           text: `${res.error ?? "the wallet did not confirm the payment"} - nothing has reached escrow`,
         });
       }
-      const refresh = await fetch(`/api/dares/${cur.id}`, { cache: "no-store" });
+      const refresh = await fetch(`/api/dares/${cur.id}`, {
+        cache: "no-store",
+        headers: readAuth ? { authorization: readAuth } : undefined,
+      });
       const rd = await refresh.json();
       if (rd.dare) setDare(rd.dare as Dare);
       if (Array.isArray(rd.participants)) setParticipants(rd.participants);
@@ -358,13 +461,15 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
     }
   }
 
-  async function joinRoom() {
+  async function attemptJoin(codeOverride?: string) {
     if (!wallet.address || wallet.status !== "ready") {
       setSubmit({ phase: "idle", error: "wallet not connected; cannot sign the room join" });
       return;
     }
-    const message = `nimdares:join:${cur.id}:${Date.now()}`;
+    const roomCode = codeOverride ?? code;
+    const message = `nimdares:join:${id}:${Date.now()}`;
     setJoining(true);
+    setGateError(null);
     const sig = await wallet.signMessage(message);
     if (!sig) {
       setJoining(false);
@@ -373,25 +478,35 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
     }
     const authHeader = `Nimiq ${sig.publicKey}:${sig.signature}:${base64UrlEncode(message)}`;
     try {
-      const res = await fetch(`/api/dares/${cur.id}/join`, {
+      const res = await fetch(`/api/dares/${id}/join`, {
         method: "POST",
         headers: { "content-type": "application/json", authorization: authHeader },
-        body: JSON.stringify({ roomCode: cur.roomCode ?? undefined }),
+        body: JSON.stringify({ roomCode: roomCode || undefined }),
       });
       const data = await res.json();
       if (!res.ok || !data.ok) {
         setJoining(false);
-        setSubmit({ phase: "idle", error: data?.error ?? `HTTP ${res.status}` });
+        const message = data?.error ?? `HTTP ${res.status}`;
+        if (codeOverride !== undefined) setGateError(message);
+        else setSubmit({ phase: "idle", error: message });
         return;
       }
       setJoining(false);
+      setCode(roomCode ?? "");
+      setLocked(false);
       setSubmit({ phase: "done", message: "seat reserved - fund it to take the chair" });
-      const refresh = await fetch(`/api/dares/${cur.id}`, { cache: "no-store" });
+      const refresh = await fetch(`/api/dares/${id}`, {
+        cache: "no-store",
+        headers: readAuth ? { authorization: readAuth } : undefined,
+      });
       const rd = await refresh.json();
+      if (rd.dare) setDare(rd.dare as Dare);
       if (Array.isArray(rd.participants)) setParticipants(rd.participants);
     } catch (e) {
       setJoining(false);
-      setSubmit({ phase: "idle", error: formatProviderError(e) });
+      const message = formatProviderError(e);
+      if (codeOverride !== undefined) setGateError(message);
+      else setSubmit({ phase: "idle", error: message });
     }
   }
 
@@ -530,7 +645,10 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
         return;
       }
       setSubmit({ phase: "done", message: proofMessage(data, true) });
-      const refresh = await fetch(`/api/dares/${cur.id}`, { cache: "no-store" });
+      const refresh = await fetch(`/api/dares/${cur.id}`, {
+        cache: "no-store",
+        headers: readAuth ? { authorization: readAuth } : undefined,
+      });
       const rd = await refresh.json();
       if (Array.isArray(rd.participants)) setParticipants(rd.participants);
     } catch (e) {
@@ -642,23 +760,26 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
             badge={`${participants.length}/${cur.maxCapacity}`}
           >
             <div className="flex flex-col gap-3">
-              {cur.roomCode && cur.isPrivate && (
+              {roomCode && cur.isPrivate && (
                 <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-muted/20 px-4 py-3">
                   <KeyRound className="size-4 text-muted-foreground" />
                   <p className="flex-1 font-mono text-2xl font-semibold tracking-[0.3em] text-primary">
-                    {cur.roomCode}
+                    {roomCode}
                   </p>
                   <button
                     onClick={() => {
-                      navigator.clipboard.writeText(cur.roomCode ?? "").catch(() => {});
+                      const inviteUrl = `${window.location.origin}/app/dare/${cur.id}?code=${encodeURIComponent(roomCode)}`;
+                      navigator.clipboard.writeText(inviteUrl).catch(() => {});
                       setCodeCopied(true);
                       setTimeout(() => setCodeCopied(false), 1500);
                     }}
                     className="text-muted-foreground transition-colors hover:text-primary"
+                    title="Copy invite link"
+                    aria-label="Copy invite link"
                   >
                     <Copy className="size-4" />
                   </button>
-                  {codeCopied && <StatusPill label="COPIED" tone="live" live />}
+                  {codeCopied && <StatusPill label="INVITE LINK COPIED" tone="live" live />}
                 </div>
               )}
               <div className="flex flex-col divide-y divide-border">
@@ -707,7 +828,7 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
               {canJoin && (
                 <div className="border-t border-border pt-4">
                   <div className="flex flex-wrap items-center gap-3">
-                    <Button onClick={() => void joinRoom()} disabled={joining || wallet.status !== "ready"}>
+                    <Button onClick={() => void attemptJoin()} disabled={joining || wallet.status !== "ready"}>
                       {joining ? "Signing…" : "Join room"}
                       <Users className="size-4" />
                     </Button>

@@ -9,6 +9,7 @@ import {
   Wallet,
   CircleAlert,
   Check,
+  Copy,
   ImageIcon,
   Users,
   Globe,
@@ -104,7 +105,11 @@ export default function CreateDare() {
     Awaited<ReturnType<typeof wallet.getAccountSnapshots>>
   >([]);
   const [nimSnapshotLoading, setNimSnapshotLoading] = useState(false);
+  const [inviteCopied, setInviteCopied] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // The create signature proves wallet ownership and is valid for reads, so
+  // the confirmation poll can reuse it instead of prompting the wallet again.
+  const readAuthRef = useRef<string | null>(null);
 
   // Pulled off the context object so the effect depends on the two values it
   // actually uses, rather than on a wallet reference that changes every render.
@@ -153,6 +158,9 @@ export default function CreateDare() {
       try {
         const res = await fetch(`/api/dares/${created.dareId}`, {
           cache: "no-store",
+          headers: readAuthRef.current
+            ? { authorization: readAuthRef.current }
+            : undefined,
         });
         if (!res.ok) return;
         const data = await res.json();
@@ -405,6 +413,7 @@ export default function CreateDare() {
         txRef: null,
       };
       setState(created);
+      readAuthRef.current = authHeader;
       if (created.asset === "NIM") {
         void stakeAndFund(created, authHeader);
       }
@@ -419,6 +428,7 @@ export default function CreateDare() {
   if (state.phase === "created") {
     const c = state;
     const isRoom = c.mode !== "solo";
+    const roomCode = c.roomCode;
     const isPaid = c.step === "paid";
     const isConfirming = c.step === "funding";
     const isCancelled = c.step === "cancelled";
@@ -575,14 +585,30 @@ export default function CreateDare() {
                   </div>
                 </div>
               )}
-              {isRoom && c.roomCode && (
-                <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-muted/20 px-4 py-3">
-                  <p className="flex-1 font-mono text-3xl font-semibold tracking-[0.3em] text-primary">
-                    {c.roomCode}
-                  </p>
-                  <Button href={`/app/dare/${c.dareId}`}>
-                    Enter lobby <ArrowRight className="size-4" />
-                  </Button>
+              {isRoom && roomCode && (
+                <div className="rounded-xl border border-border bg-muted/20 px-4 py-3">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <p className="flex-1 font-mono text-3xl font-semibold tracking-[0.3em] text-primary">
+                      {roomCode}
+                    </p>
+                    <Button href={`/app/dare/${c.dareId}?code=${encodeURIComponent(roomCode)}`}>
+                      Enter lobby <ArrowRight className="size-4" />
+                    </Button>
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-border pt-3">
+                    <button
+                      onClick={() => {
+                        const inviteUrl = `${window.location.origin}/app/dare/${c.dareId}?code=${encodeURIComponent(roomCode)}`;
+                        navigator.clipboard.writeText(inviteUrl).catch(() => {});
+                        setInviteCopied(true);
+                        setTimeout(() => setInviteCopied(false), 1500);
+                      }}
+                      className="inline-flex items-center gap-2 font-mono text-[11px] text-muted-foreground transition-colors hover:text-primary"
+                    >
+                      <Copy className="size-3.5" /> Copy invite link
+                    </button>
+                    {inviteCopied && <StatusPill label="INVITE LINK COPIED" tone="live" live />}
+                  </div>
                 </div>
               )}
               <div className="flex flex-wrap gap-3">

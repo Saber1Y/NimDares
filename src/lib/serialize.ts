@@ -10,7 +10,10 @@ function escrowFor(asset: Asset) {
   return { address: info.configured ? info.address : null, configured: info.configured };
 }
 
-export function dareToClient(d: DareRecord): Dare {
+export function dareToClient(
+  d: DareRecord,
+  opts: { includeRoomCode?: boolean } = {},
+): Dare {
   return {
     id: d.id,
     ownerAddress: d.ownerAddress,
@@ -24,7 +27,7 @@ export function dareToClient(d: DareRecord): Dare {
         : Number(d.amountRaw) / 1_000_000,
     maxCapacity: d.maxCapacity,
     isPrivate: d.isPrivate,
-    roomCode: d.roomCode,
+    roomCode: opts.includeRoomCode ? d.roomCode : null,
     deadline: d.deadline.toISOString(),
     status: d.status,
     verifierKind: d.verifierKind,

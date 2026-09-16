@@ -148,7 +148,7 @@ export async function POST(
         verdict: "UNAVAILABLE",
         reason: verdict.reason,
         attemptsLeft: MAX_PROOF_ATTEMPTS - dare.proofAttempts,
-        dare: held ? dareToClient(held) : null,
+        dare: held ? dareToClient(held, { includeRoomCode: true }) : null,
         store: store.label,
       },
       { status: 201 }
@@ -179,7 +179,7 @@ export async function POST(
       observations: verdict.observations,
       attemptsLeft: verdict.status === "VALID" ? 0 : MAX_PROOF_ATTEMPTS - attempts,
       payout: payout ? { status: payout.status, txHash: payout.txHash, reason: payout.reason } : null,
-      dare: ruled ? dareToClient(ruled) : null,
+      dare: ruled ? dareToClient(ruled, { includeRoomCode: true }) : null,
       store: store.label,
     },
     { status: 201 }

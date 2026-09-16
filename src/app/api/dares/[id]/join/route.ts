@@ -43,7 +43,7 @@ export async function POST(
   if (new Date(dare.deadline).getTime() <= Date.now()) {
     return NextResponse.json({ ok: false, error: "room join window has closed" }, { status: 409 });
   }
-  if (dare.roomCode && parsed.data.roomCode && dare.roomCode !== parsed.data.roomCode) {
+  if (dare.roomCode && parsed.data.roomCode !== dare.roomCode) {
     return NextResponse.json({ ok: false, error: "invalid room code" }, { status: 403 });
   }
 
@@ -69,7 +69,7 @@ export async function POST(
   return NextResponse.json(
     {
       ok: true,
-      dare: dareToClient(dare),
+      dare: dareToClient(dare, { includeRoomCode: true }),
       participant: participantToClient(participant),
       funding: {
         asset: dare.asset,

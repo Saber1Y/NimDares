@@ -57,7 +57,7 @@ async function settlePendingFunding(dare: DareRecord): Promise<boolean> {
 }
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   ctx: { params: Promise<{ id: string }> }
 ) {
   const { id } = await ctx.params;
@@ -67,16 +67,45 @@ export async function GET(
     return NextResponse.json({ ok: false, error: "dare not found" }, { status: 404 });
   }
 
+  // Reads are gated. Arena rooms are public; solo dares exist only for their
+  // owner; team rooms open to authorized wallets or to anyone holding the
+  // invite code. Identity is optional here, so a missing header is a guest,
+  // not an error.
+  const auth = await authenticate(req);
+  const viewer = auth.ok ? auth.address! : null;
+  const participants =
+    dare.maxCapacity > 1 ? await store.listParticipants(id) : [];
+
+  const isArena = !dare.isPrivate;
+  const isOwner = viewer !== null && viewer === dare.ownerAddress;
+  const isParticipant =
+    viewer !== null && participants.some((p) => p.userAddress === viewer);
+  const hasCode =
+    dare.roomCode !== null && req.nextUrl.searchParams.get("code") === dare.roomCode;
+  const authorized = isArena || isOwner || isParticipant || hasCode;
+
+  if (!authorized) {
+    // Team rooms are shared by link, so revealing that a room exists is fine;
+    // joining still requires the code. The client turns this into the invite
+    // entrance rather than a "not found" screen.
+    if (dare.isPrivate && dare.maxCapacity > 1) {
+      return NextResponse.json(
+        { ok: false, error: "this room needs its invite code", codeRequired: true },
+        { status: 403 },
+      );
+    }
+    // Solo: hide existence entirely.
+    return NextResponse.json({ ok: false, error: "dare not found" }, { status: 404 });
+  }
+
   if (await settlePendingFunding(dare)) {
     dare = (await store.getDare(id)) ?? dare;
   }
 
-  const participants =
-    dare.maxCapacity > 1 ? (await store.listParticipants(id)).map(participantToClient) : [];
   return NextResponse.json({
     ok: true,
-    dare: dareToClient(dare),
-    participants,
+    dare: dareToClient(dare, { includeRoomCode: authorized }),
+    participants: participants.map(participantToClient),
     store: store.label,
   });
 }
@@ -99,7 +128,7 @@ export async function DELETE(
     return NextResponse.json({
       ok: true,
       deleted: false,
-      dare: dareToClient(result.dare),
+      dare: dareToClient(result.dare, { includeRoomCode: true }),
       refunds: result.refunds.map((refund) => ({
         ...refund,
         amountRaw: refund.amountRaw.toString(),
