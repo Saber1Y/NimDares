@@ -342,11 +342,13 @@ class PrismaLedgerStore implements LedgerStore {
   }
 
   async listDares(ownerAddress?: string) {
-    const owner = ownerAddress
-      ? await this.db().user.findUnique({ where: { address: ownerAddress } })
-      : undefined;
+    if (!ownerAddress) return [];
+    const owner = await this.db().user.findUnique({ where: { address: ownerAddress } });
+    // An address without a user row owns nothing; never fall through to a
+    // broadened (unfiltered) query.
+    if (!owner) return [];
     const dares = await this.db().dare.findMany({
-      where: owner ? { ownerId: owner.id } : undefined,
+      where: { ownerId: owner.id },
       include: { owner: true },
       orderBy: { createdAt: "desc" },
       take: 50,

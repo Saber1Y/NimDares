@@ -147,6 +147,11 @@ const outsiderPub = outsider.publicKey.toHex();
 const outsiderMsg = `nimdares-login:${Date.now()}`;
 const outsiderSig = signFor(outsider)(outsiderMsg);
 const outsiderAuth = `Nimiq ${outsiderPub}:${outsiderSig}:${Buffer.from(outsiderMsg).toString("base64url")}`;
+const outsiderAddress = outsider.toAddress().toUserFriendlyAddress();
+r = await json(`${BASE}/api/dares?owner=${encodeURIComponent(outsiderAddress)}`, {
+  headers: { authorization: outsiderAuth },
+});
+assert(r.body?.dares?.length === 0, `unknown owner sees nothing (${r.body?.dares?.length})`);
 r = await json(`${BASE}/api/dares/${dareId}`);
 assert(r.status === 404, `solo dare hidden from unauthenticated reads (${r.status})`);
 r = await json(`${BASE}/api/dares/${dareId}`, { headers: { authorization: outsiderAuth } });
