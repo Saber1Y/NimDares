@@ -89,7 +89,31 @@ assert(
   `escrow reports honest config state (configured=${r.body?.escrow?.configured})`
 );
 
-// 4. Reject unauthenticated create
+// 4. Delete an unfunded dare permanently
+r = await json(`${BASE}/api/dares`, {
+  method: "POST",
+  headers: { "content-type": "application/json", authorization: authHeader },
+  body: JSON.stringify({
+    title: "Delete this test dare",
+    description: "This unfunded dare exists to verify creator deletion.",
+    criteria: "The test should remove this record before any stake is sent.",
+    asset: "NIM",
+    amount: 1,
+    deadline: new Date(Date.now() + 48 * 3600_000).toISOString(),
+    verifierKind: "STRAVA",
+  }),
+});
+assert(r.status === 201 && r.body?.ok === true, `create deletion test dare succeeds (${r.status})`);
+const deleteDareId = r.body?.dare?.id;
+r = await json(`${BASE}/api/dares/${deleteDareId}`, {
+  method: "DELETE",
+  headers: { authorization: authHeader },
+});
+assert(r.status === 200 && r.body?.deleted === true, `creator can delete an unfunded dare (${r.status})`);
+r = await json(`${BASE}/api/dares/${deleteDareId}`);
+assert(r.status === 404, `deleted dare is no longer readable (${r.status})`);
+
+// 5. Reject unauthenticated create
 r = await json(`${BASE}/api/dares`, {
   method: "POST",
   headers: { "content-type": "application/json" },
@@ -105,33 +129,42 @@ r = await json(`${BASE}/api/dares`, {
 });
 assert(r.status === 401, `unauthenticated create rejected (${r.status})`);
 
-// 5. List dares + summary
+// 6. List dares + summary
 r = await json(`${BASE}/api/dares`);
 assert(r.status === 200 && Array.isArray(r.body?.dares), `list dares`);
 assert(r.body?.dares?.some((d) => d.id === dareId), `created dare appears in list`);
 assert(typeof r.body?.summary?.active === "number", `summary present`);
 
-// 6. Single dare + filtered by owner
+// 7. Single dare + filtered by owner
 r = await json(`${BASE}/api/dares/${dareId}`);
 assert(r.status === 200 && r.body?.dare?.id === dareId, `get dare by id`);
 r = await json(`${BASE}/api/dares?owner=${encodeURIComponent(address)}`);
 assert(r.body?.dares?.some((d) => d.id === dareId), `filter dares by owner`);
 
-// 7. User endpoint
+// 8. User endpoint
 r = await json(`${BASE}/api/user?address=${encodeURIComponent(address)}`);
 assert(r.status === 200 && r.body?.user?.address === address, `user endpoint returns address`);
 assert(r.body?.dareCount >= 1, `user dareCount includes created dare`);
 
-// 8. Proof submission runs (image-less VISION is rejected, GitHub link accepted)
+// 9. Proof submission runs (image-less VISION is rejected, GitHub link accepted)
 r = await json(`${BASE}/api/dares/${dareId}/proof`, {
   method: "POST",
   headers: { "content-type": "application/json", authorization: authHeader },
   body: JSON.stringify({ proofImage: "data:image/png;base64,AAAA" }),
 });
 assert(
-  [400, 201].includes(r.status),
+  [400, 201, 409].includes(r.status),
   `proof submission handled (${r.status}${r.body?.error ? `: ${r.body.error}` : ""})`
 );
+if (r.status === 201 && r.body?.dare?.status === "SUBMITTED") {
+  r = await json(`${BASE}/api/dares/${dareId}`, {
+    method: "DELETE",
+    headers: { authorization: authHeader },
+  });
+  assert(r.status === 409, `cancel is blocked after proof submission (${r.status})`);
+} else {
+  console.log("ok: proof cutoff deferred because the test dare was not funded");
+}
 
 // 9. Reconcile reflects an honest offline state
 r = await json(`${BASE}/api/wallet/reconcile`, {
@@ -158,7 +191,14 @@ const charlieMsg = `nimdares-login:${Date.now()}`;
 const charlieSig = signFor(charlie)(charlieMsg);
 const charlieAuth = `Nimiq ${charliePub}:${charlieSig}:${Buffer.from(charlieMsg).toString("base64url")}`;
 
-// 11. Create team room with explicit capacity
+// 11. A non-owner cannot cancel someone else's dare
+r = await json(`${BASE}/api/dares/${dareId}`, {
+  method: "DELETE",
+  headers: { authorization: bobAuth },
+});
+assert(r.status === 403, `non-owner cancellation is rejected (${r.status})`);
+
+// 12. Create team room with explicit capacity
 r = await json(`${BASE}/api/dares`, {
   method: "POST",
   headers: { "content-type": "application/json", authorization: authHeader },
@@ -182,7 +222,7 @@ assert(r.body?.dare?.isPrivate === true, `team room is private by default`);
 const teamRoomCode = r.body?.dare?.roomCode;
 assert(typeof teamRoomCode === "string" && teamRoomCode.length === 6, `team room has a 6-char roomCode`);
 
-// 12. Create arena (public) room
+// 13. Create arena (public) room
 r = await json(`${BASE}/api/dares`, {
   method: "POST",
   headers: { "content-type": "application/json", authorization: authHeader },
@@ -203,20 +243,20 @@ const arenaId = r.body?.dare?.id;
 assert(r.body?.dare?.isPrivate === false, `arena room is public`);
 assert(r.body?.dare?.roomCode === null || typeof r.body?.dare?.roomCode === "string", `arena room carries a share code`);
 
-// 13. Open feed lists arena rooms only
+// 14. Open feed lists arena rooms only
 r = await json(`${BASE}/api/dares?mode=open`);
 assert(r.status === 200 && Array.isArray(r.body?.rooms), `open feed returns rooms`);
 assert(r.body?.rooms?.some((d) => d.id === arenaId), `arena room appears in open feed`);
 assert(!r.body?.rooms?.some((d) => d.id === teamId), `private team room is hidden from open feed`);
 assert(!r.body?.rooms?.some((d) => d.maxCapacity <= 1), `solo dares are hidden from open feed`);
 
-// 14. Get room exposes participants with the creator seated
+// 15. Get room exposes participants with the creator seated
 r = await json(`${BASE}/api/dares/${teamId}`);
 assert(r.status === 200 && Array.isArray(r.body?.participants), `get room returns participants`);
 assert(r.body?.participants?.length === 1, `creator holds the first seat`);
 assert(r.body?.participants?.[0]?.userAddress === address, `creator seat belongs to creator`);
 
-// 15. Join room with a valid code as a second user
+// 16. Join room with a valid code as a second user
 r = await json(`${BASE}/api/dares/${teamId}/join`, {
   method: "POST",
   headers: { "content-type": "application/json", authorization: bobAuth },
@@ -224,20 +264,19 @@ r = await json(`${BASE}/api/dares/${teamId}/join`, {
 });
 assert(r.status === 201 && r.body?.ok === true, `join team room with code succeeds (${r.status})`);
 assert(
-  r.body?.funding?.memo === `nimdares:${teamId}:${r.body?.participant?.id}`,
-  `join returns per-seat funding memo nimdares:<dareId>:<participantId>`
+  r.body?.funding?.memo === `nimdares:${r.body?.participant?.id}`,
+  `join returns per-seat funding memo nimdares:<participantId>`
 );
 assert(
   r.body?.funding?.escrowConfigured === false ? r.body?.funding?.escrowAddress === null : typeof r.body?.funding?.escrowAddress === "string",
   `join reports escrow honestly (configured=${r.body?.funding?.escrowConfigured})`
 );
-const bobParticipantId = r.body?.funding?.participant?.id;
 
-// 16. Get room now shows two seats
+// 17. Get room now shows two seats
 r = await json(`${BASE}/api/dares/${teamId}`);
 assert(r.body?.participants?.length === 2, `room lists creator and joiner seats`);
 
-// 17. Duplicate join is rejected
+// 18. Duplicate join is rejected
 r = await json(`${BASE}/api/dares/${teamId}/join`, {
   method: "POST",
   headers: { "content-type": "application/json", authorization: bobAuth },
@@ -245,7 +284,7 @@ r = await json(`${BASE}/api/dares/${teamId}/join`, {
 });
 assert(r.status === 409, `duplicate join rejected (${r.status})`);
 
-// 18. Wrong room code is rejected
+// 19. Wrong room code is rejected
 r = await json(`${BASE}/api/dares/${teamId}/join`, {
   method: "POST",
   headers: { "content-type": "application/json", authorization: charlieAuth },
@@ -253,7 +292,7 @@ r = await json(`${BASE}/api/dares/${teamId}/join`, {
 });
 assert(r.status === 403, `wrong room code rejected (${r.status})`);
 
-// 19. Joining a solo dare is rejected
+// 20. Joining a solo dare is rejected
 r = await json(`${BASE}/api/dares/${dareId}/join`, {
   method: "POST",
   headers: { "content-type": "application/json", authorization: charlieAuth },

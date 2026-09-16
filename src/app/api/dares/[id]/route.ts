@@ -3,6 +3,8 @@ import { getStore } from "@/lib/db";
 import { confirmNimFunding } from "@/lib/escrow/confirm";
 import { dareToClient, participantToClient } from "@/lib/serialize";
 import type { DareRecord } from "@/lib/db";
+import { authenticate } from "@/lib/verify";
+import { cancelDare, CancelError } from "@/lib/cancel";
 
 /** Unsettled seats re-checked per read, so one slow room cannot fan out RPC calls. */
 const MAX_SEAT_CHECKS = 5;
@@ -77,4 +79,36 @@ export async function GET(
     participants,
     store: store.label,
   });
+}
+
+export async function DELETE(
+  req: NextRequest,
+  ctx: { params: Promise<{ id: string }> },
+) {
+  const auth = await authenticate(req);
+  if (!auth.ok) {
+    return NextResponse.json({ ok: false, error: auth.error }, { status: 401 });
+  }
+
+  const { id } = await ctx.params;
+  try {
+    const result = await cancelDare(id, auth.address!);
+    if (result.kind === "deleted") {
+      return NextResponse.json({ ok: true, deleted: true, dareId: result.dareId, refunds: [], store: getStore().label });
+    }
+    return NextResponse.json({
+      ok: true,
+      deleted: false,
+      dare: dareToClient(result.dare),
+      refunds: result.refunds.map((refund) => ({
+        ...refund,
+        amountRaw: refund.amountRaw.toString(),
+      })),
+      store: getStore().label,
+    });
+  } catch (error) {
+    if (!(error instanceof CancelError)) throw error;
+    const status = error.message === "dare not found" ? 404 : error.message.startsWith("only the dare creator") ? 403 : 409;
+    return NextResponse.json({ ok: false, error: error.message }, { status });
+  }
 }

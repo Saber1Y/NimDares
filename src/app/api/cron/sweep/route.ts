@@ -5,6 +5,7 @@ import { payoutDare, settleRoom } from "@/lib/payout";
 import { verdictToRecord } from "@/lib/proof-intake";
 import { confirmNimFunding } from "@/lib/escrow/confirm";
 import { retrySoloPayout, settleSoloWin } from "@/lib/settle";
+import { retryVoidedRoomRefunds } from "@/lib/cancel";
 import type { AdjudicationResult } from "@/lib/adjudicate";
 import { getNimEscrowInfo, getNimCharityAddress } from "@/lib/escrow/nim";
 
@@ -113,6 +114,10 @@ export async function POST(req: NextRequest) {
       else stats.payouts_failed += 1;
       continue;
     }
+
+    const roomRefundsRetried = await retryVoidedRoomRefunds(dare);
+    if (roomRefundsRetried > 0) stats.payouts_retried += roomRefundsRetried;
+    if (dare.status === "VOIDED") continue;
 
     const isFundedPreState = dare.status === "ACTIVE" || dare.status === "SUBMITTED";
     if (!isFundedPreState) {

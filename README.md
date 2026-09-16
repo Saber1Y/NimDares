@@ -331,6 +331,7 @@ The repository retains the ten-minute Vercel cron declaration, but the deployed 
 | GitHub and Strava verification | Real - adapters exist, but each requires provider credentials and its supported evidence format. |
 | Persistent production storage | Real - requires a configured `DATABASE_URL`; otherwise development uses memory. |
 | Automated settlement sweep | Real - route exists and is protected by `CRON_SECRET`; external scheduling is required on Vercel Hobby. |
+| Creator cancellation | Real - unfunded dares are deleted, while funded solo dares and rooms become `VOIDED` and refund through the escrow signer before the deadline or proof submission. |
 | Polygon USDT funding and payouts | Not yet established - code paths exist, but the current competition demo is NIM-first. |
 | HTLC recovery from Nimiq Pay | Not yet established - the Mini App SDK does not expose HTLC refund methods. |
 | Independent production security audit | Not yet established. |

@@ -16,6 +16,7 @@ import {
   KeyRound,
   Coins,
   Loader2,
+  Trash2,
 } from "lucide-react";
 import { useNimiqWallet } from "@/components/nimiq-provider";
 import { HudPanel } from "@/components/ui/hud-panel";
@@ -107,6 +108,7 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
     { phase: "idle" }
   );
   const [joining, setJoining] = useState(false);
+  const [canceling, setCanceling] = useState(false);
   // Funding has its own note, rendered beside the fund button. Sharing `submit`
   // pushed payment status down into the proof panel at the foot of the page.
   const [fundingNote, setFundingNote] = useState<
@@ -393,6 +395,57 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
     }
   }
 
+  async function cancelDareFromWallet() {
+    if (!wallet.address || wallet.status !== "ready") {
+      setSubmit({ phase: "idle", error: "wallet not connected; cannot cancel the dare" });
+      return;
+    }
+    const fundedSeats = participants.filter((participant) => participant.funded).length;
+    const isFunded = isRoom ? fundedSeats > 0 : cur.funded;
+    const message = isFunded
+      ? isRoom
+        ? `Cancel this room? Each of its ${fundedSeats} funded seat${fundedSeats === 1 ? "" : "s"} will receive ${formatAmount(cur.amount)} ${cur.asset} back.`
+        : `Cancel this dare? Your ${formatAmount(cur.amount)} ${cur.asset} stake will be returned.`
+      : "Delete this unfunded dare permanently?";
+    if (!window.confirm(message)) return;
+
+    const signedMessage = `nimdares:cancel:${cur.id}:${Date.now()}`;
+    setCanceling(true);
+    const sig = await wallet.signMessage(signedMessage);
+    if (!sig) {
+      setCanceling(false);
+      setSubmit({ phase: "idle", error: "wallet signature failed or was rejected" });
+      return;
+    }
+    const authHeader = `Nimiq ${sig.publicKey}:${sig.signature}:${base64UrlEncode(signedMessage)}`;
+    try {
+      const res = await fetch(`/api/dares/${cur.id}`, {
+        method: "DELETE",
+        headers: { authorization: authHeader },
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        setSubmit({ phase: "idle", error: data?.error ?? `HTTP ${res.status}` });
+        return;
+      }
+      if (data.deleted) {
+        setMissing(true);
+        return;
+      }
+      if (data.dare) setDare(data.dare as Dare);
+      setSubmit({
+        phase: "done",
+        message: data.refunds?.some((refund: { status?: string }) => refund.status === "PENDING")
+          ? "cancelled - refund queued for the settlement sweep"
+          : "cancelled - refund sent",
+      });
+    } catch (e) {
+      setSubmit({ phase: "idle", error: formatProviderError(e) });
+    } finally {
+      setCanceling(false);
+    }
+  }
+
   async function submitProof(image?: string) {
     if (!wallet.address || wallet.status !== "ready") {
       setSubmit({ phase: "idle", error: "wallet not connected; cannot sign the proof" });
@@ -507,6 +560,17 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
     cur.status === "PENDING_FUNDING" && (cur.ownerAddress === wallet.address || wallet.status !== "ready");
   const isConfirming = cur.status === "PENDING_FUNDING" && cur.funded === false;
   const seatNeedsFunds = mySeat && !mySeat.funded && roomOpen && cur.escrow;
+  const hasFundedStake = cur.funded || participants.some((participant) => participant.funded);
+  const creator = Boolean(wallet.address && wallet.address === cur.ownerAddress);
+  const canCancel =
+    creator &&
+    wallet.status === "ready" &&
+    ["PENDING_FUNDING", "LOBBY", "ACTIVE"].includes(cur.status) &&
+    !pastDeadline &&
+    !cur.proofImageUrl &&
+    !participants.some(
+      (participant) => participant.proofImageUrl || participant.proofLink || participant.aiVerdict !== "WAITING",
+    );
 
   const seatTone = (p: Participant) =>
     p.aiVerdict === "VALID" ? "success" : p.aiVerdict === "INVALID" ? "failed" : p.funded ? "live" : "neutral";
@@ -524,6 +588,20 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
         <div className="mt-5 flex flex-wrap items-center gap-3">
           <StatusPill label={dareStatusLabel(cur.status)} tone={tone} live={tone === "live"} />
           {isRoom && <StatusPill label={cur.isPrivate ? "TEAM ROOM" : "ARENA ROOM"} tone="neutral" />}
+          {canCancel && (
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => void cancelDareFromWallet()}
+              disabled={canceling}
+              aria-label={hasFundedStake ? "Cancel and refund dare" : "Delete dare"}
+              title={hasFundedStake ? "Cancel and refund" : "Delete dare"}
+              className="ml-auto px-3 text-red-300 hover:bg-red-400/10 hover:text-red-200"
+            >
+              {canceling ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+              <span className="sr-only">{hasFundedStake ? "Cancel and refund" : "Delete"}</span>
+            </Button>
+          )}
         </div>
         <h1 className="mt-3 text-4xl font-semibold tracking-[-0.05em] md:text-5xl">
           {cur.title}

@@ -148,6 +148,8 @@ export interface LedgerStore {
     id: string,
     patch: Partial<Omit<DareRecord, "id">>
   ): Promise<DareRecord | null>;
+  deleteDare(id: string): Promise<boolean>;
+  deleteParticipants(dareId: string): Promise<void>;
   createParticipant(input: NewParticipantInput): Promise<ParticipantRecord>;
   getParticipant(id: string): Promise<ParticipantRecord | null>;
   listParticipants(dareId: string): Promise<ParticipantRecord[]>;
@@ -387,6 +389,19 @@ class PrismaLedgerStore implements LedgerStore {
     return fromPrismaDare(d);
   }
 
+  async deleteDare(id: string) {
+    await this.db().$transaction(async (tx) => {
+      await tx.participant.deleteMany({ where: { dareId: id } });
+      await tx.txRecord.deleteMany({ where: { dareId: id } });
+      await tx.dare.delete({ where: { id } });
+    });
+    return true;
+  }
+
+  async deleteParticipants(dareId: string) {
+    await this.db().participant.deleteMany({ where: { dareId } });
+  }
+
   async createParticipant(input: NewParticipantInput) {
     await this.getOrCreateUser(input.userAddress);
     const p = await this.db().participant.create({
@@ -566,7 +581,7 @@ class MemoryLedgerStore implements LedgerStore {
   private users = new Map<string, { id: string; address: string }>();
   private dares = new Map<string, DareRecord>();
   private participants = new Map<string, ParticipantRecord>();
-  private txs: { id: string; kind: NewTxInput["kind"]; asset: Asset }[] = [];
+  private txs: { id: string; dareId: string | null; kind: NewTxInput["kind"]; asset: Asset }[] = [];
   private escrow = new Map<string, EscrowBalanceRecord>();
 
   private escrowKey(asset: Asset, chain: "NIM" | "EVM", address: string) {
@@ -650,6 +665,20 @@ class MemoryLedgerStore implements LedgerStore {
     return next;
   }
 
+  async deleteDare(id: string) {
+    if (!this.dares.has(id)) return false;
+    await this.deleteParticipants(id);
+    this.txs = this.txs.filter((tx) => tx.dareId !== id);
+    this.dares.delete(id);
+    return true;
+  }
+
+  async deleteParticipants(dareId: string) {
+    for (const [id, participant] of this.participants) {
+      if (participant.dareId === dareId) this.participants.delete(id);
+    }
+  }
+
   async createParticipant(input: NewParticipantInput) {
     await this.getOrCreateUser(input.userAddress);
     const p: ParticipantRecord = {
@@ -715,7 +744,7 @@ class MemoryLedgerStore implements LedgerStore {
 
   async recordTx(input: NewTxInput) {
     const id = randomUUID();
-    this.txs.push({ id, kind: input.kind, asset: input.asset });
+    this.txs.push({ id, dareId: input.dareId ?? null, kind: input.kind, asset: input.asset });
     return { id };
   }
 
@@ -763,7 +792,7 @@ class MemoryLedgerStore implements LedgerStore {
   async listTransactions(limit = 50): Promise<TxRecordRow[]> {
     return this.txs.slice(-limit).reverse().map((t) => ({
       id: t.id,
-      dareId: null,
+      dareId: t.dareId,
       kind: t.kind,
       chain: t.asset === "NIM" ? "NIM" : "EVM",
       asset: t.asset,
