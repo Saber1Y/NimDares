@@ -92,3 +92,18 @@ export const NIM_MAX_TX_DATA_BYTES = 64;
 // Proof attempts per stake. Mirrors MAX_PROOF_ATTEMPTS in lib/proof-intake.ts,
 // which is the server-side authority.
 export const MAX_PROOF_ATTEMPTS = 3;
+
+// Real Nimiq tx hashes are 32-byte hex (64 chars). Anything else is a
+// placeholder (memory-store `test-<id>` refs, nulls before confirmation).
+const NIM_TX_HASH_RE = /^[0-9a-f]{64}$/i;
+
+export function isRealNimTxHash(hash: string | null | undefined): hash is string {
+  return !!hash && NIM_TX_HASH_RE.test(hash.trim().replace(/^0x/i, ""));
+}
+
+/** nimiqscan explorer URL for a confirmed transaction, or null for placeholders. */
+export function nimScanUrl(hash: string | null | undefined): string | null {
+  if (!isRealNimTxHash(hash)) return null;
+  const root = NIM_NETWORK === "testnet" ? "https://testnet.nimiqscan.com" : "https://nimiqscan.com";
+  return `${root}/transaction/${hash.trim().replace(/^0x/i, "")}`;
+}

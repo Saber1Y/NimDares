@@ -16,13 +16,15 @@ import {
   Hash,
   GitBranch,
   Loader2,
+  ExternalLink,
 } from "lucide-react";
 import { useNimiqWallet } from "@/components/nimiq-provider";
 import { HudPanel } from "@/components/ui/hud-panel";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Button } from "@/components/ui/button";
 import type { Asset, RoomMode, VerifierKind } from "@/lib/types";
-import { NIM_MAX_TX_DATA_BYTES } from "@/lib/config";
+import { NIM_MAX_TX_DATA_BYTES, nimScanUrl } from "@/lib/config";
+import { base64UrlEncode } from "@/lib/client-auth";
 import { formatProviderError as extractError } from "@/lib/errors";
 
 type FundStep = "funding" | "paid" | "cancelled" | "failed";
@@ -81,11 +83,6 @@ const MODES: {
     hint: "A public table anyone can join from the arena feed",
   },
 ];
-
-function base64UrlEncode(s: string): string {
-  const b64 = btoa(unescape(encodeURIComponent(s)));
-  return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
 
 export default function CreateDare() {
   const wallet = useNimiqWallet();
@@ -514,13 +511,26 @@ export default function CreateDare() {
                 </div>
               )}
               {isPaid ? (
-                <div className="flex items-start gap-3 rounded-2xl border border-primary/30 bg-primary/5 px-5 py-4">
-                  <Check className="mt-0.5 size-5 shrink-0 text-primary" />
-                  <p className="text-sm leading-relaxed text-foreground">
-                    {isRoom
-                      ? `Your seat is locked and your ${c.amount} ${c.asset} is held safely. The room plays once every seat is paid or the deadline passes.`
-                      : `Your ${c.amount} ${c.asset} stake is on-chain in escrow and the dare is live. Keep the evidence handy - you submit the proof before the deadline.`}
-                  </p>
+                <div className="flex flex-col gap-2 rounded-2xl border border-primary/30 bg-primary/5 px-5 py-4">
+                  <div className="flex items-start gap-3">
+                    <Check className="mt-0.5 size-5 shrink-0 text-primary" />
+                    <p className="text-sm leading-relaxed text-foreground">
+                      {isRoom
+                        ? `Your seat is locked and your ${c.amount} ${c.asset} is held safely. The room plays once every seat is paid or the deadline passes.`
+                        : `Your ${c.amount} ${c.asset} stake is on-chain in escrow and the dare is live. Keep the evidence handy - you submit the proof before the deadline.`}
+                    </p>
+                  </div>
+                  {c.asset === "NIM" && nimScanUrl(c.txRef) && (
+                    <a
+                      href={nimScanUrl(c.txRef) ?? undefined}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="ml-8 inline-flex items-center gap-1.5 font-mono text-[11px] text-primary underline decoration-primary/40 underline-offset-4 hover:decoration-primary"
+                    >
+                      <ExternalLink className="size-3" />
+                      escrow tx: {c.txRef?.slice(0, 12)}… · view on Nimiqscan
+                    </a>
+                  )}
                 </div>
               ) : isConfirming ? (
                 <div className="flex items-start gap-3 rounded-2xl border border-primary/30 bg-primary/5 px-5 py-4">
