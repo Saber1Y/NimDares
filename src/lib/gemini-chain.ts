@@ -71,8 +71,15 @@ export async function callWithModelFallback<T>(
 
 /** Short, human-facing summary of why every model in the chain was unusable. */
 export function modelChainFailureReason(e: unknown, models: string[]): string {
-  const detail = e instanceof Error ? e.message.split("\n")[0].slice(0, 240) : String(e);
-  return `all Gemini models could not rule (${models.join(", ")}): ${detail}`;
+  const message = e instanceof Error ? e.message : String(e);
+  // Explain what the user can actually do, not which API limit tripped.
+  if (/quota|RESOURCE_EXHAUSTED|rate.?limit|exceed/i.test(message)) {
+    return "the AI judge is at capacity right now (its daily request limit is drained). Your proof is stored safely and will be ruled on automatically; you can also resubmit a clearer screenshot later.";
+  }
+  if (/not found|retired/i.test(message)) {
+    return `the AI judge model is unavailable right now (${models.join(", ")}). Your proof is stored safely and will be ruled on when the judge is back.`;
+  }
+  return `the judge could not rule right now (${models.join(", ")}). Your proof is stored safely and will be ruled on automatically.`;
 }
 
 export function lastErrorMessage(e: unknown): string {

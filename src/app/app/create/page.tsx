@@ -892,9 +892,10 @@ export default function CreateDare() {
               >
                 <GitBranch className="mt-0.5 size-4 shrink-0 text-primary" />
                 <span className="flex flex-col gap-1">
-                  <span className="text-sm text-foreground">GitHub activity</span>
+                  <span className="text-sm text-foreground">GitHub PR / commit</span>
                   <span className="text-xs leading-relaxed text-muted-foreground">
-                    Verify public activity from your GitHub account after the dare starts.
+                    Paste a pull-request or commit URL as proof - no screenshot
+                    needed. The server checks it against GitHub.
                   </span>
                 </span>
               </button>

@@ -82,6 +82,12 @@ function proofMessage(data: ProofOutcome, pooled: boolean): string {
     case "INVALID":
       return `rejected: ${data.reason ?? "the proof did not hold up"}${left}`;
     case "UNAVAILABLE":
+      if (data.reason) {
+        const r = data.reason.toLowerCase();
+        return /quota|request limit|rate|capacity/.test(r)
+          ? `${data.reason}${left}`
+          : `not checked yet: ${data.reason}${left}`;
+      }
       return "the judge is offline; your proof is stored and will be ruled on later";
     default:
       return "proof submitted";
