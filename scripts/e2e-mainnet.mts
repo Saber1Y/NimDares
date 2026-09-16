@@ -160,7 +160,7 @@ async function setupPhase() {
   if (userBal < 105_000n) {
     const seedRaw = 110_000n; // 1.1 NIM: 1 NIM stake + funding fee + sweep buffer
     log("seeding", Number(seedRaw) / 100_000 + " NIM escrow -> user");
-    const seedHash = await broadcast(escrow.key, escrowAddr, seedRaw);
+    const seedHash = await broadcast(escrow.key, userAddress, seedRaw);
     state.seedHash = seedHash;
     saveState(state);
     log("seed tx", seedHash);
