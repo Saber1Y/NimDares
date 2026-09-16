@@ -112,7 +112,7 @@ assert(r.status === 200 && r.body?.ok === true, `sweep ran (${JSON.stringify(r.b
 
 // Step 5: Fetch the dare to see the verdict
 console.log("\n--- Step 5: Fetch verdict ---");
-r = await json(`${BASE}/api/dares/${dareId}`);
+r = await json(`${BASE}/api/dares/${dareId}`, { headers: { authorization: authHeader } });
 assert(r.status === 200, `dare fetched (${r.status})`);
 const dare = r.body?.dare;
 if (dare?.verifierResult) {

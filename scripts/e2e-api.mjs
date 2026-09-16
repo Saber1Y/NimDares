@@ -129,22 +129,42 @@ r = await json(`${BASE}/api/dares`, {
 });
 assert(r.status === 401, `unauthenticated create rejected (${r.status})`);
 
-// 6. List dares + summary
+// 6. List: without an owner nothing is revealed; filtered by owner works
 r = await json(`${BASE}/api/dares`);
 assert(r.status === 200 && Array.isArray(r.body?.dares), `list dares`);
-assert(r.body?.dares?.some((d) => d.id === dareId), `created dare appears in list`);
+assert(r.body?.dares?.length === 0, `list without owner reveals no dares`);
 assert(typeof r.body?.summary?.active === "number", `summary present`);
-
-// 7. Single dare + filtered by owner
-r = await json(`${BASE}/api/dares/${dareId}`);
-assert(r.status === 200 && r.body?.dare?.id === dareId, `get dare by id`);
 r = await json(`${BASE}/api/dares?owner=${encodeURIComponent(address)}`);
 assert(r.body?.dares?.some((d) => d.id === dareId), `filter dares by owner`);
 
+// 7. Solo dare reads require the owner's wallet identity
+const outsider = KeyPair.generate();
+const outsiderPub = outsider.publicKey.toHex();
+const outsiderMsg = `nimdares-login:${Date.now()}`;
+const outsiderSig = signFor(outsider)(outsiderMsg);
+const outsiderAuth = `Nimiq ${outsiderPub}:${outsiderSig}:${Buffer.from(outsiderMsg).toString("base64url")}`;
+r = await json(`${BASE}/api/dares/${dareId}`);
+assert(r.status === 404, `solo dare hidden from unauthenticated reads (${r.status})`);
+r = await json(`${BASE}/api/dares/${dareId}`, { headers: { authorization: outsiderAuth } });
+assert(r.status === 404, `solo dare hidden from other wallets (${r.status})`);
+r = await json(`${BASE}/api/dares/${dareId}`, { headers: { authorization: authHeader } });
+assert(r.status === 200 && r.body?.dare?.id === dareId, `owner gets solo dare by id`);
+
 // 8. User endpoint
-r = await json(`${BASE}/api/user?address=${encodeURIComponent(address)}`);
+r = await json(`${BASE}/api/user?address=${encodeURIComponent(address)}`, {
+  headers: { authorization: authHeader },
+});
 assert(r.status === 200 && r.body?.user?.address === address, `user endpoint returns address`);
 assert(r.body?.dareCount >= 1, `user dareCount includes created dare`);
+const stranger = KeyPair.generate();
+const stranStrPub = stranger.publicKey.toHex();
+const stranStrMsg = `nimdares-login:${Date.now()}`;
+const stranStrSig = signFor(stranger)(stranStrMsg);
+const strangerAuth = `Nimiq ${stranStrPub}:${stranStrSig}:${Buffer.from(stranStrMsg).toString("base64url")}`;
+r = await json(`${BASE}/api/user?address=${encodeURIComponent(address)}`, {
+  headers: { authorization: strangerAuth },
+});
+assert(r.status === 403, `user endpoint rejects cross-account reads (${r.status})`);
 
 // 9. Proof submission runs (image-less VISION is rejected, GitHub link accepted)
 r = await json(`${BASE}/api/dares/${dareId}/proof`, {
@@ -241,7 +261,7 @@ r = await json(`${BASE}/api/dares`, {
 assert(r.status === 201 && r.body?.ok === true, `create arena room succeeds (${r.status})`);
 const arenaId = r.body?.dare?.id;
 assert(r.body?.dare?.isPrivate === false, `arena room is public`);
-assert(r.body?.dare?.roomCode === null || typeof r.body?.dare?.roomCode === "string", `arena room carries a share code`);
+assert(r.body?.dare?.roomCode === null, `arena rooms carry no invite code`);
 
 // 14. Open feed lists arena rooms only
 r = await json(`${BASE}/api/dares?mode=open`);
@@ -250,11 +270,14 @@ assert(r.body?.rooms?.some((d) => d.id === arenaId), `arena room appears in open
 assert(!r.body?.rooms?.some((d) => d.id === teamId), `private team room is hidden from open feed`);
 assert(!r.body?.rooms?.some((d) => d.maxCapacity <= 1), `solo dares are hidden from open feed`);
 
-// 15. Get room exposes participants with the creator seated
+// 15. Team room reads are gated by invite code or wallet identity
 r = await json(`${BASE}/api/dares/${teamId}`);
-assert(r.status === 200 && Array.isArray(r.body?.participants), `get room returns participants`);
+assert(r.status === 403 && r.body?.codeRequired === true, `team room hidden without code (${r.status})`);
+r = await json(`${BASE}/api/dares/${teamId}?code=${encodeURIComponent(teamRoomCode)}`);
+assert(r.status === 200 && Array.isArray(r.body?.participants), `get room with invite code returns participants`);
 assert(r.body?.participants?.length === 1, `creator holds the first seat`);
 assert(r.body?.participants?.[0]?.userAddress === address, `creator seat belongs to creator`);
+assert(r.body?.dare?.roomCode === teamRoomCode, `invite code returned to a code holder`);
 
 // 16. Join room with a valid code as a second user
 r = await json(`${BASE}/api/dares/${teamId}/join`, {
@@ -272,9 +295,11 @@ assert(
   `join reports escrow honestly (configured=${r.body?.funding?.escrowConfigured})`
 );
 
-// 17. Get room now shows two seats
-r = await json(`${BASE}/api/dares/${teamId}`);
+// 17. Get room now shows two seats (code and participant identity both work)
+r = await json(`${BASE}/api/dares/${teamId}?code=${encodeURIComponent(teamRoomCode)}`);
 assert(r.body?.participants?.length === 2, `room lists creator and joiner seats`);
+r = await json(`${BASE}/api/dares/${teamId}`, { headers: { authorization: bobAuth } });
+assert(r.status === 200 && r.body?.participants?.length === 2, `participant reads the full room with identity`);
 
 // 18. Duplicate join is rejected
 r = await json(`${BASE}/api/dares/${teamId}/join`, {
