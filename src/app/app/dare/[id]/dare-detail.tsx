@@ -1108,7 +1108,13 @@ export default function DareDetail({
                       onClick={() => fileRef.current?.click()}
                       disabled={wallet.status !== "ready" || submit.phase === "signing" || submit.phase === "submitting" || submit.phase === "capturing"}
                     >
-                      {submit.phase === "capturing" ? "Reading…" : "Attach screenshot"}
+                      {submit.phase === "capturing"
+                        ? "Reading…"
+                        : submit.phase === "signing"
+                          ? "Signing…"
+                          : submit.phase === "submitting"
+                            ? "Judging…"
+                            : "Attach screenshot"}
                       <ImageIcon className="size-4" />
                     </Button>
                     {cur.proofImageUrl && (
@@ -1138,6 +1144,16 @@ export default function DareDetail({
                     </Button>
                   </div>
                 </div>
+              )}
+              {submit.phase === "signing" && (
+                <p className="flex items-center gap-2 font-mono text-[11px] text-primary">
+                  <Loader2 className="size-3.5 animate-spin" /> waiting for your wallet signature…
+                </p>
+              )}
+              {submit.phase === "submitting" && (
+                <p className="flex items-center gap-2 font-mono text-[11px] text-primary">
+                  <Loader2 className="size-3.5 animate-spin" /> the AI judge is ruling on your proof…
+                </p>
               )}
               {submit.phase === "idle" && submit.error && (
                 <p className="font-mono text-[11px] text-red-400">{submit.error}</p>
@@ -1207,7 +1223,13 @@ export default function DareDetail({
                       onClick={() => fileRef.current?.click()}
                       disabled={wallet.status !== "ready" || submit.phase === "signing" || submit.phase === "submitting" || submit.phase === "capturing"}
                     >
-                      {submit.phase === "capturing" ? "Reading…" : "Attach screenshot"}
+                      {submit.phase === "capturing"
+                        ? "Reading…"
+                        : submit.phase === "signing"
+                          ? "Signing…"
+                          : submit.phase === "submitting"
+                            ? "Judging…"
+                            : "Attach screenshot"}
                       <ImageIcon className="size-4" />
                     </Button>
                     {mySeat.proofImageUrl && (
@@ -1237,6 +1259,16 @@ export default function DareDetail({
                     </Button>
                   </div>
                 </div>
+              )}
+              {submit.phase === "signing" && (
+                <p className="flex items-center gap-2 font-mono text-[11px] text-primary">
+                  <Loader2 className="size-3.5 animate-spin" /> waiting for your wallet signature…
+                </p>
+              )}
+              {submit.phase === "submitting" && (
+                <p className="flex items-center gap-2 font-mono text-[11px] text-primary">
+                  <Loader2 className="size-3.5 animate-spin" /> the AI judge is ruling on your proof…
+                </p>
               )}
               {submit.phase === "idle" && submit.error && (
                 <p className="font-mono text-[11px] text-red-400">{submit.error}</p>
