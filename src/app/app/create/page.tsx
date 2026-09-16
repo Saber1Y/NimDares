@@ -733,7 +733,17 @@ export default function CreateDare() {
                 return (
                   <button
                     key={m.mode}
-                    onClick={() => setMode(m.mode)}
+                    onClick={() => {
+                      setMode(m.mode);
+                      // GitHub verification binds one username, so it can only
+                      // vouch for a solo dare. Picking a room mode downgrades
+                      // the verifier to screenshot proof instead of failing at
+                      // submit time.
+                      if (m.mode !== "solo" && verifierKind === "GITHUB") {
+                        setVerifierKind("VISION");
+                        setVerifierLink("");
+                      }
+                    }}
                     className={`flex flex-1 items-center gap-3 rounded-xl border px-4 py-3 text-left transition-all ${
                       active
                         ? "border-primary bg-primary/10"
@@ -890,14 +900,17 @@ export default function CreateDare() {
               </button>
               <button
                 type="button"
+                disabled={mode !== "solo"}
                 onClick={() => {
                   setVerifierKind("GITHUB");
                   setMode("solo");
                 }}
                 className={`flex items-start gap-3 rounded-xl border px-4 py-3 text-left transition-colors ${
-                  verifierKind === "GITHUB"
-                    ? "border-primary/40 bg-primary/10"
-                    : "border-border bg-black/10 hover:border-primary/30"
+                  mode !== "solo"
+                    ? "cursor-not-allowed border-border/50 bg-black/5 opacity-50"
+                    : verifierKind === "GITHUB"
+                      ? "border-primary/40 bg-primary/10"
+                      : "border-border bg-black/10 hover:border-primary/30"
                 }`}
               >
                 <GitBranch className="mt-0.5 size-4 shrink-0 text-primary" />
@@ -907,6 +920,11 @@ export default function CreateDare() {
                     Paste a pull-request or commit URL as proof - no screenshot
                     needed. The server checks it against GitHub.
                   </span>
+                  {mode !== "solo" && (
+                    <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-amber-300/80">
+                      solo modes only · teams each verify their own work
+                    </span>
+                  )}
                 </span>
               </button>
             </div>
@@ -922,9 +940,11 @@ export default function CreateDare() {
               </Field>
             )}
             <p className="font-mono text-[11px] leading-relaxed text-muted-foreground">
-              &gt; at proof time you paste the commit or PR URL that proves the
-              work; the server verifies it against GitHub and the token never
-              reaches the browser.
+              {mode === "solo" && verifierKind === "GITHUB"
+                ? "> at proof time you paste the commit or PR URL that proves the work; the server verifies it against GitHub and the token never reaches the browser."
+                : mode !== "solo"
+                  ? "> teams and arenas are judged per player, so each member submits their own screenshot; GitHub proof stays solo-only."
+                  : "> at proof time you upload a screenshot; the AI judge checks it against the acceptance criteria."}
             </p>
           </div>
         </HudPanel>
