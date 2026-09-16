@@ -90,7 +90,13 @@ export async function POST(
   });
 
   // Same as a solo dare: the seat is judged now so it can still be replaced.
-  const verdict = await adjudicateDare({ ...dare, proofLink: proofLink ?? null });
+  // The image lives on the seat, not the dare, so hand the adjudicator the
+  // dare with the seat's proof attached - otherwise VISION finds no image.
+  const verdict = await adjudicateDare({
+    ...dare,
+    proofImageUrl: proofImage ?? participant.proofImageUrl ?? null,
+    proofLink: proofLink ?? null,
+  });
   if (verdict.status === "UNAVAILABLE") {
     const held = await store.updateParticipant(participantId, {
       proofAttempts: participant.proofAttempts,
