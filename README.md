@@ -426,7 +426,8 @@ Do not use a Pay account whose balance is locked in an HTLC, because a basic NIM
 | --- | --- |
 | `DATABASE_URL` | Supabase or PostgreSQL connection string for persistent storage. |
 | `GEMINI_API_KEY` | Gemini key for Vision adjudication and evidence specification. |
-| `GEMINI_MODEL` | Optional Gemini model override. |
+| `GEMINI_MODEL` | Optional Gemini model override (primary of the chain). Default `gemini-3.1-flash-lite` with `gemini-3.6-flash` fallback. |
+| `GEMINI_MODELS` | Optional comma-separated model chain, tried in order and skipped when retired or quota-capped. |
 | `GITHUB_TOKEN` | Optional GitHub API verifier token. |
 | `STRAVA_ACCESS_TOKEN` | Optional Strava verifier token. |
 | `ESCROW_NIM_KEY_HEX` | NIM escrow signing key. Never commit this value. |

@@ -92,8 +92,9 @@ const raw = tx.serialize(); // broadcast-friendly; BufferUtils.toHex for wire
 
 ### Gemini vision adjudicator - `@google/genai` v2 (keep <3.0.0, Node >= 20)
 
-- Use `gemini-3.6-flash` (default) or a newer Flash tier; older `gemini-2.5-flash` is retired for new users (404).
-- Override via `GEMINI_MODEL` env var if needed.
+- Use `gemini-3.1-flash-lite` by default (about 1500 free requests/day) with `gemini-3.6-flash` as a fallback; older `gemini-2.5-flash` is retired for new users (404).
+- The judge walks a model chain: when one model is quota-capped (429) or retired (404), adjudication falls through to the next (`src/lib/gemini-chain.ts`).
+- Override the chain via `GEMINI_MODELS` (comma-separated) or `GEMINI_MODEL` env vars if needed.
 - Vision proof flow: user uploads screenshot -> server routes to Gemini with the dare's exact criteria text.
 - Require strict JSON output `{ status: "VALID"|"INVALID", reason }`; parse defensively.
 - Cost-sensitive: run Fast model first, escalate to Pro only when confidence is low.

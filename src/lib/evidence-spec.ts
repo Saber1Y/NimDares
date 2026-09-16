@@ -1,6 +1,11 @@
 "server-only";
 
 import { GoogleGenAI, Type, type Schema } from "@google/genai";
+import {
+  callWithModelFallback,
+  modelChain,
+  modelChainFailureReason,
+} from "@/lib/gemini-chain";
 
 /**
  * A dare's evidence requirements, fixed at creation time and shown to the user
@@ -18,7 +23,7 @@ export interface EvidenceSpec {
   generatedAt: string;
 }
 
-const SPEC_MODEL = process.env.GEMINI_SPEC_MODEL ?? process.env.GEMINI_MODEL ?? "gemini-3.6-flash";
+const SPEC_MODELS = modelChain();
 
 const SpecSchema: Schema = {
   type: Type.OBJECT,
@@ -75,16 +80,20 @@ export async function generateEvidenceSpec(input: SpecInput): Promise<EvidenceSp
 
   try {
     const ai = new GoogleGenAI({ apiKey });
-    const res = await ai.models.generateContent({
-      model: SPEC_MODEL,
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: SpecSchema,
-        temperature: 0.2,
-      },
-    });
-    const parsed = JSON.parse(res.text ?? "") as {
+    const { result, model } = await callWithModelFallback(
+      async (model) =>
+        ai.models.generateContent({
+          model,
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: SpecSchema,
+            temperature: 0.2,
+          },
+        }),
+      SPEC_MODELS,
+    );
+    const parsed = JSON.parse(result.text ?? "") as {
       expectedArtifact?: unknown;
       requirements?: unknown;
     };
@@ -96,7 +105,7 @@ export async function generateEvidenceSpec(input: SpecInput): Promise<EvidenceSp
       requirements: requirements.slice(0, 5),
       expectedArtifact:
         typeof parsed.expectedArtifact === "string" ? parsed.expectedArtifact : "a screenshot",
-      source: SPEC_MODEL,
+      source: model,
       generatedAt: new Date().toISOString(),
     };
   } catch {

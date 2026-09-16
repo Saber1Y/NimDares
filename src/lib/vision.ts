@@ -3,6 +3,11 @@
 import { GoogleGenAI, Type, type Schema } from "@google/genai";
 import type { DareRecord } from "@/lib/db";
 import { isEvidenceSpec } from "@/lib/evidence-spec";
+import {
+  callWithModelFallback,
+  modelChain,
+  modelChainFailureReason,
+} from "@/lib/gemini-chain";
 
 export interface VisionVerdict {
   status: "VALID" | "INVALID" | "AMBIGUOUS" | "UNAVAILABLE";
@@ -14,7 +19,7 @@ export interface VisionVerdict {
   observations?: string;
 }
 
-const VISION_MODEL = process.env.GEMINI_MODEL ?? "gemini-3.6-flash";
+const VISION_MODELS = modelChain();
 
 /**
  * Thresholds on the completion probability. The model does not choose the
@@ -115,37 +120,44 @@ export async function runVisionAdjudication(dare: DareRecord): Promise<VisionVer
 
   try {
     const ai = new GoogleGenAI({ apiKey });
-    const res = await ai.models.generateContent({
-      model: VISION_MODEL,
-      contents: [
-        {
-          role: "user",
-          parts: [{ text: prompt }, { inlineData: { mimeType, data: b64 } }],
-        },
-      ],
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: VerdictSchema,
-        // Low, for a repeatable audit rather than a creative one.
-        temperature: 0.1,
-      },
-    });
+    // Walk the model chain: a quota-capped or retired model must not block the
+    // ruling when a fallback model can still judge the screenshot.
+    const { result, model } = await callWithModelFallback(
+      async (model) =>
+        ai.models.generateContent({
+          model,
+          contents: [
+            {
+              role: "user",
+              parts: [{ text: prompt }, { inlineData: { mimeType, data: b64 } }],
+            },
+          ],
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: VerdictSchema,
+            // Low, for a repeatable audit rather than a creative one.
+            temperature: 0.1,
+          },
+        }),
+      VISION_MODELS,
+    );
 
-    const parsed = parseVerdict(res.text ?? "");
+    const text = result.text ?? "";
+    const parsed = parseVerdict(text);
     if (!parsed) {
       return {
         status: "UNAVAILABLE",
-        reason: "vision model returned no parseable verdict",
-        source: VISION_MODEL,
+        reason: `vision model returned no parseable verdict`,
+        source: model,
       };
     }
-    return scoreVerdict(parsed, VISION_MODEL);
+    return scoreVerdict(parsed, model);
   } catch (e) {
     // Never fabricate a ruling from an API failure: UNAVAILABLE leaves the
     // stake untouched and the dare unresolved.
     return {
       status: "UNAVAILABLE",
-      reason: e instanceof Error ? e.message : String(e),
+      reason: modelChainFailureReason(e, VISION_MODELS),
       source: "gemini",
     };
   }

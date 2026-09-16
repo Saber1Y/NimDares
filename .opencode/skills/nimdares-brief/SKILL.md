@@ -23,7 +23,7 @@ All three modes share one backend (create/join/verify/settle), one escrow model,
 - **Data Layer:** Prisma 7 with PostgreSQL (**Supabase**, `@prisma/adapter-pg` + `pg`) for production; in-memory fallback ledger store (`src/lib/db.ts`) when `DATABASE_URL` is unset (dev/demo mode). Supabase works cleanly with Vercel.
 - **Nimiq Web3:** `@nimiq/core` (Node.js build) for server-side address derivation, verification, and basic transaction building; `@nimiq/mini-app-sdk` for client wallet connection, signing (`provider.sign`), and staking (`provider.sendBasicTransaction` / `sendBasicTransactionWithData`).
 - **EVM Integration:** Ethers v6 for Polygon USDT escrow and payouts (deferred for rooms in the first cut; NIM first).
-- **AI & Verifiers:** Gemini 3.6 Flash via `@google/genai` for structured vision adjudication (override model via `GEMINI_MODEL`; default `gemini-3.6-flash`, older `gemini-2.5-flash` is retired for new users). GitHub commits/PRs and Strava fetch remain deployed verifiers (`src/lib/vision.ts`, `github.ts`, `strava.ts`) but are solo-only for the rooms cut.
+- **AI & Verifiers:** Gemini structured vision adjudication via `@google/genai`. Model chain defaults to `gemini-3.1-flash-lite` (approx 1500 free requests/day) then `gemini-3.6-flash`; 429/404 models are skipped (override via `GEMINI_MODELS` or `GEMINI_MODEL`; older `gemini-2.5-flash` is retired for new users). GitHub commits/PRs and Strava fetch remain deployed verifiers (`src/lib/vision.ts`, `github.ts`, `strava.ts`) but are solo-only for the rooms cut.
 - **Auth:** Nimiq Ed25519 signature verification (`@noble/ed25519`) over `sha256(message)`; header `Nimiq <pubHex>:<sigHex>:<base64url(msg)>`.
 
 ---
