@@ -1,7 +1,19 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect width="64" height="64" rx="18" fill="#090B10"/>
-  <circle cx="32" cy="32" r="23" fill="none" stroke="#B9F34A" stroke-width="2.5" opacity=".25"/>
-  <path d="M48.6 20.5a21.5 21.5 0 0 1-2.1 22.8" fill="none" stroke="#B9F34A" stroke-width="4" stroke-linecap="round"/>
-  <path d="M19 44V20h6.8l12.4 14.1V20H45v24h-6.8L25.7 29.9V44H19Z" fill="#B9F34A"/>
-  <circle cx="47.4" cy="17.2" r="3.1" fill="#E8FF9B"/>
+  <rect width="64" height="64" rx="18" fill="#1F2348"/>
+  <ellipse
+    cx="32"
+    cy="32"
+    rx="22"
+    ry="12.5"
+    transform="rotate(-28 32 32)"
+    fill="none"
+    stroke="#E9B213"
+    stroke-width="2.8"
+    opacity=".78"
+  />
+  <path
+    d="M19 44V20h6.7l12.6 14.36V20H45v24h-6.7L25.7 29.64V44H19Z"
+    fill="#E9B213"
+  />
+  <circle cx="48.2" cy="18.2" r="2.9" fill="#F7D66B"/>
 </svg>
