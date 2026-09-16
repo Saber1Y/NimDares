@@ -181,7 +181,14 @@ export interface LedgerStore {
 const prismaState = (() => {
   const url = process.env.DATABASE_URL;
   if (!url) return null;
-  const adapter = new PrismaPg({ connectionString: url });
+  // Supabase pgbouncer caps the pooled connection count (pool_size 15) and
+  // rejects new clients once it is reached. Serverless instances would each
+  // open cpus*2+1 connections by default, exhausting the pool, so pin each
+  // instance to exactly one connection.
+  const limited = url.includes("?")
+    ? `${url}&connection_limit=1`
+    : `${url}?connection_limit=1`;
+  const adapter = new PrismaPg({ connectionString: limited });
   return new PrismaClient({ adapter });
 })();
 
@@ -527,13 +534,13 @@ class PrismaLedgerStore implements LedgerStore {
   }
 
   async summary(): Promise<LedgerSummary> {
-    const [activeAgg, nimAgg, usdtAgg, wonAgg, lostAgg] = await Promise.all([
-      this.db().dare.count({ where: { status: { in: ["PENDING_FUNDING", "ACTIVE", "SUBMITTED"] } } }),
-      this.db().escrowBalance.aggregate({ where: { asset: "NIM" }, _sum: { balanceRaw: true } }),
-      this.db().escrowBalance.aggregate({ where: { asset: "USDT" }, _sum: { balanceRaw: true } }),
-      this.db().dare.count({ where: { status: "WON" } }),
-      this.db().dare.count({ where: { status: "LOST" } }),
-    ]);
+    // Run sequentially: each aggregate takes a pooled connection, and running
+    // them in parallel makes a single request burst the shared pgbouncer cap.
+    const activeAgg = await this.db().dare.count({ where: { status: { in: ["PENDING_FUNDING", "ACTIVE", "SUBMITTED"] } } });
+    const nimAgg = await this.db().escrowBalance.aggregate({ where: { asset: "NIM" }, _sum: { balanceRaw: true } });
+    const usdtAgg = await this.db().escrowBalance.aggregate({ where: { asset: "USDT" }, _sum: { balanceRaw: true } });
+    const wonAgg = await this.db().dare.count({ where: { status: "WON" } });
+    const lostAgg = await this.db().dare.count({ where: { status: "LOST" } });
     return {
       active: activeAgg,
       escrowedNim: nimAgg._sum.balanceRaw ?? 0n,
