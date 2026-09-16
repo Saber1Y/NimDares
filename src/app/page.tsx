@@ -188,7 +188,7 @@ export default function Landing() {
                   icon: <Wallet className="size-4" />,
                   label: "01 · DARE",
                   title: "Price the failure",
-                  body: "Define the goal, the deadline, and the cost of quitting. Stake NIM or USDT straight from your Nimiq Pay wallet, in-app.",
+                  body: "Define the goal, the deadline, and the cost of quitting. Stake NIM straight from your Nimiq Pay wallet, in-app.",
                 },
                 {
                   icon: <ScanLine className="size-4" />,

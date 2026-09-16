@@ -23,15 +23,6 @@ import { timeLeft, shortHash } from "@/lib/format";
 import type { Dare, LedgerSummary } from "@/lib/types";
 
 // Browser-native base64url encoding. `Buffer` is polyfilled by Next.js but
-// node/webpack polyfill versions disagree on `base64url` support, so encode
-// through TextEncoder + btoa instead.
-function base64UrlEncode(s: string): string {
-  const bytes = new TextEncoder().encode(s);
-  let bin = "";
-  for (const b of bytes) bin += String.fromCharCode(b);
-  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
 type ApiState = {
   status: "loading" | "ok" | "unavailable";
   dares: Dare[];
@@ -41,7 +32,7 @@ type ApiState = {
 type ModeFilter = "all" | "solo" | "team" | "arena";
 
 export default function Dashboard() {
-  const { status: walletStatus, address, balances, signMessage, getAccountSnapshots } = useNimiqWallet();
+  const { status: walletStatus, address, balances, readAuth, signIn, getAccountSnapshots } = useNimiqWallet();
   // What the player can actually stake: the largest single account, since a
   // stake is paid from one account.
   const availableNim =
@@ -53,23 +44,20 @@ export default function Dashboard() {
   });
   const [rooms, setRooms] = useState<Dare[]>([]);
   const [modeFilter, setModeFilter] = useState<ModeFilter>("all");
-  const [readAuth, setReadAuth] = useState<string | null>(null);
   const [signingIn, setSigningIn] = useState(false);
 
   // The owner-scoped list is only readable by the wallet that owns the
   // address. Signing is user-triggered (wallet dialogs require a user
   // gesture and firing one automatically on mount is rejected by the host),
   // so the dashboard loads the public arena + summary first and dares fill
-  // in once the user signs in.
-  const signIn = useCallback(async () => {
+  // in once the user signs in. The read credential is persisted per wallet in
+  // the wallet provider, so this prompt appears once, not on every visit.
+  const signInOnce = useCallback(async () => {
     if (walletStatus !== "ready" || !address || readAuth || signingIn) return;
     setSigningIn(true);
-    const message = `nimdares:read-list:${Date.now()}`;
-    const sig = await signMessage(message);
+    await signIn();
     setSigningIn(false);
-    if (!sig) return;
-    setReadAuth(`Nimiq ${sig.publicKey}:${sig.signature}:${base64UrlEncode(message)}`);
-  }, [walletStatus, address, readAuth, signingIn, signMessage]);
+  }, [walletStatus, address, readAuth, signingIn, signIn]);
 
   useEffect(() => {
     let cancelled = false;
@@ -337,9 +325,9 @@ export default function Dashboard() {
             <EmptyLedger
               icon={<Wallet className="size-6 text-muted-foreground" />}
               title="Sign in to see your dares"
-              body="Your wallet is connected. Sign a read credential so NimDares can show the dares you own."
+              body="Your wallet is connected. Sign a read credential so NimDares can show the dares you own. You only sign once per wallet."
               action={
-                <Button onClick={() => void signIn()} disabled={signingIn}>
+                <Button onClick={() => void signInOnce()} disabled={signingIn}>
                   {signingIn ? "Signing in…" : "Sign in"}
                 </Button>
               }

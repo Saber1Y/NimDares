@@ -18,6 +18,7 @@ import {
   Loader2,
   Trash2,
   Wallet,
+  ExternalLink,
 } from "lucide-react";
 import { useNimiqWallet } from "@/components/nimiq-provider";
 import { HudPanel } from "@/components/ui/hud-panel";
@@ -25,7 +26,8 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Dare, Participant } from "@/lib/types";
-import { NIM_MAX_TX_DATA_BYTES, MAX_PROOF_ATTEMPTS } from "@/lib/config";
+import { NIM_MAX_TX_DATA_BYTES, MAX_PROOF_ATTEMPTS, nimScanUrl } from "@/lib/config";
+import { base64UrlEncode } from "@/lib/client-auth";
 import { formatProviderError } from "@/lib/errors";
 import { dareStatusLabel, payoutLabel, verdictLabel } from "@/lib/labels";
 
@@ -51,12 +53,6 @@ function formatDeadline(iso: string): string {
   }
   return `${when} · expired`;
 }
-
-function base64UrlEncode(s: string): string {
-  const b64 = btoa(unescape(encodeURIComponent(s)));
-  return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
 
 interface ProofOutcome {
   verdict?: string;
@@ -112,7 +108,7 @@ export default function DareDetail({
   inviteCode?: string | null;
 }) {
   const wallet = useNimiqWallet();
-  const { getAccountSnapshots, balances, status: walletStatus } = wallet;
+  const { getAccountSnapshots, balances, status: walletStatus, readAuth, signIn } = wallet;
   const [dare, setDare] = useState<Dare | null>(initial);
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [missing, setMissing] = useState(false);
@@ -122,9 +118,6 @@ export default function DareDetail({
   const [gateError, setGateError] = useState<string | null>(null);
   const [code, setCode] = useState<string>(inviteCode ?? "");
   const [codeInput, setCodeInput] = useState("");
-  // One wallet-bound signature per page, reused across polls: reads are cheap
-  // and sign-per-read would ping the wallet every six seconds.
-  const [readAuth, setReadAuth] = useState<string | null>(null);
   const [proofLink, setProofLink] = useState("");
   const [submit, setSubmit] = useState<SubmitState>({ phase: "idle", error: null });
   const [codeCopied, setCodeCopied] = useState(false);
@@ -142,17 +135,16 @@ export default function DareDetail({
   const fileRef = useRef<HTMLInputElement>(null);
 
   // Signing is user-triggered (wallet dialogs require a user gesture per
-  // Nimiq Pay host rules).  The dare only appears once the user signs.
+  // Nimiq Pay host rules).  The dare only appears once the user signs. The
+  // credential is persisted in the wallet provider, so this prompt only ever
+  // needs one signature per wallet.
   const needsReadAuth = initial === null && walletStatus === "ready";
-  const signIn = useCallback(async () => {
+  const signInOnce = useCallback(async () => {
     if (!needsReadAuth || readAuth || signingIn) return;
     setSigningIn(true);
-    const message = `nimdares:read:${id}:${Date.now()}`;
-    const sig = await wallet.signMessage(message);
+    await signIn();
     setSigningIn(false);
-    if (!sig) return;
-    setReadAuth(`Nimiq ${sig.publicKey}:${sig.signature}:${base64UrlEncode(message)}`);
-  }, [needsReadAuth, readAuth, signingIn, wallet, id]);
+  }, [needsReadAuth, readAuth, signingIn, signIn]);
 
   useEffect(() => {
     if (dare) return;
@@ -238,7 +230,7 @@ export default function DareDetail({
             this dare.
           </p>
         </div>
-        <Button onClick={() => void signIn()} disabled={signingIn}>
+        <Button onClick={() => void signInOnce()} disabled={signingIn}>
           {signingIn ? "Signing in…" : "Sign in to view"}
         </Button>
       </div>
@@ -380,7 +372,6 @@ export default function DareDetail({
     roomOpen &&
     !mySeat &&
     participants.length < cur.maxCapacity &&
-    // eslint-disable-next-line react-hooks/purity -- deadline comparison is stable per render
     new Date(cur.deadline).getTime() > Date.now();
 
   const tone =
@@ -774,6 +765,22 @@ export default function DareDetail({
               value={isRoom ? `${participants.length} / ${cur.maxCapacity} seated` : shortAddr(cur.ownerAddress)}
               mono
             />
+            {cur.asset === "NIM" && nimScanUrl(cur.escrowTxHash) && (
+              <div className="flex flex-col gap-1">
+                <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                  escrow tx
+                </span>
+                <a
+                  href={nimScanUrl(cur.escrowTxHash) ?? undefined}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 font-mono text-sm text-primary underline decoration-primary/40 underline-offset-4 hover:decoration-primary"
+                >
+                  {cur.escrowTxHash?.slice(0, 12)}…
+                  <ExternalLink className="size-3" />
+                </a>
+              </div>
+            )}
           </div>
         </HudPanel>
       </motion.div>
@@ -954,6 +961,17 @@ export default function DareDetail({
                         {fundingNote.text}
                       </p>
                     )}
+                    {cur.asset === "NIM" && nimScanUrl(cur.escrowTxHash) && (
+                      <a
+                        href={nimScanUrl(cur.escrowTxHash) ?? undefined}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-1 inline-flex items-center gap-1.5 font-mono text-[11px] text-primary underline decoration-primary/40 underline-offset-4 hover:decoration-primary"
+                      >
+                        <ExternalLink className="size-3" />
+                        escrow tx: {cur.escrowTxHash?.slice(0, 12)}… · view on Nimiqscan
+                      </a>
+                    )}
                   </div>
                 </div>
               )}
@@ -1022,6 +1040,17 @@ export default function DareDetail({
             {cur.payoutStatus && (
               <p className="mt-4 font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
                 payment: <span className="text-primary">{payoutLabel(cur.payoutStatus)}</span>
+                {cur.asset === "NIM" && nimScanUrl(cur.payoutTxHash) && (
+                  <a
+                    href={nimScanUrl(cur.payoutTxHash) ?? undefined}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="ml-3 inline-flex items-center gap-1.5 text-primary normal-case underline decoration-primary/40 underline-offset-4 tracking-normal hover:decoration-primary"
+                  >
+                    <ExternalLink className="size-3" />
+                    tx
+                  </a>
+                )}
               </p>
             )}
           </HudPanel>
@@ -1079,7 +1108,13 @@ export default function DareDetail({
                       onClick={() => fileRef.current?.click()}
                       disabled={wallet.status !== "ready" || submit.phase === "signing" || submit.phase === "submitting" || submit.phase === "capturing"}
                     >
-                      {submit.phase === "capturing" ? "Reading…" : "Attach screenshot"}
+                      {submit.phase === "capturing"
+                        ? "Reading…"
+                        : submit.phase === "signing"
+                          ? "Signing…"
+                          : submit.phase === "submitting"
+                            ? "Judging…"
+                            : "Attach screenshot"}
                       <ImageIcon className="size-4" />
                     </Button>
                     {cur.proofImageUrl && (
@@ -1109,6 +1144,16 @@ export default function DareDetail({
                     </Button>
                   </div>
                 </div>
+              )}
+              {submit.phase === "signing" && (
+                <p className="flex items-center gap-2 font-mono text-[11px] text-primary">
+                  <Loader2 className="size-3.5 animate-spin" /> waiting for your wallet signature…
+                </p>
+              )}
+              {submit.phase === "submitting" && (
+                <p className="flex items-center gap-2 font-mono text-[11px] text-primary">
+                  <Loader2 className="size-3.5 animate-spin" /> the AI judge is ruling on your proof…
+                </p>
               )}
               {submit.phase === "idle" && submit.error && (
                 <p className="font-mono text-[11px] text-red-400">{submit.error}</p>
@@ -1178,7 +1223,13 @@ export default function DareDetail({
                       onClick={() => fileRef.current?.click()}
                       disabled={wallet.status !== "ready" || submit.phase === "signing" || submit.phase === "submitting" || submit.phase === "capturing"}
                     >
-                      {submit.phase === "capturing" ? "Reading…" : "Attach screenshot"}
+                      {submit.phase === "capturing"
+                        ? "Reading…"
+                        : submit.phase === "signing"
+                          ? "Signing…"
+                          : submit.phase === "submitting"
+                            ? "Judging…"
+                            : "Attach screenshot"}
                       <ImageIcon className="size-4" />
                     </Button>
                     {mySeat.proofImageUrl && (
@@ -1208,6 +1259,16 @@ export default function DareDetail({
                     </Button>
                   </div>
                 </div>
+              )}
+              {submit.phase === "signing" && (
+                <p className="flex items-center gap-2 font-mono text-[11px] text-primary">
+                  <Loader2 className="size-3.5 animate-spin" /> waiting for your wallet signature…
+                </p>
+              )}
+              {submit.phase === "submitting" && (
+                <p className="flex items-center gap-2 font-mono text-[11px] text-primary">
+                  <Loader2 className="size-3.5 animate-spin" /> the AI judge is ruling on your proof…
+                </p>
               )}
               {submit.phase === "idle" && submit.error && (
                 <p className="font-mono text-[11px] text-red-400">{submit.error}</p>

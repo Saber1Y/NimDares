@@ -13,6 +13,12 @@ import {
 import { init, type NimiqProvider, type SignatureResult } from "@nimiq/mini-app-sdk";
 import { NIM_DECIMALS, nimRpcUrlFor } from "@/lib/config";
 import { formatProviderError } from "@/lib/errors";
+import {
+  buildReadAuth,
+  clearStoredAuth,
+  readStoredAuth,
+  storeAuth,
+} from "@/lib/client-auth";
 
 export type WalletStatus =
   | "initializing"
@@ -59,6 +65,17 @@ interface WalletState {
   /** Block height of the network the Pay host is on, or null when unreadable. */
   getBlockNumber: () => Promise<number | null>;
   connect: () => Promise<void>;
+  /**
+   * A wallet-bound read credential, signed once and persisted per wallet. It
+   * authenticates every read route (the server only verifies the signature,
+   * not the message content), so the user signs in once instead of on every
+   * page visit. null until the user signs in.
+   */
+  readAuth: string | null;
+  /** Asks the wallet for a read credential and persists it. Returns the header. */
+  signIn: () => Promise<string | null>;
+  /** Forgets the persisted read credential for this wallet. */
+  signOut: () => void;
 }
 
 export interface NimAccountSnapshot {
@@ -90,6 +107,7 @@ export function NimiqWalletProvider({ children }: { children: ReactNode }) {
   const snapshotCache = useRef<{ at: number; key: string; data: NimAccountSnapshot[] } | null>(null);
   const [status, setStatus] = useState<WalletStatus>("initializing");
   const [error, setError] = useState<string | null>(null);
+  const [readAuth, setReadAuth] = useState<string | null>(null);
 
   const connect = useCallback(async () => {
     try {
@@ -112,6 +130,12 @@ export function NimiqWalletProvider({ children }: { children: ReactNode }) {
         setError(null);
       }
       setStatus("ready");
+      // Rehydrate the persisted read credential for the connected wallet so a
+      // reload does not re-open the signature sheet.
+      const current = (res as string[])[0];
+      if (current) {
+        setReadAuth(readStoredAuth(rpcUrl.includes("testnet") ? "testnet" : "mainnet", current));
+      }
     } catch (e) {
       const msg = formatProviderError(e, "could not reach the Nimiq Pay host");
       const noHost =
@@ -147,6 +171,39 @@ export function NimiqWalletProvider({ children }: { children: ReactNode }) {
     },
     [provider]
   );
+
+  const signIn = useCallback(async (): Promise<string | null> => {
+    const addr = accounts[0];
+    if (!provider || !addr) return null;
+    // The message content is client-side convention only; the server verifies
+    // the signature itself. A wallet-bound generic message is enough for every
+    // read route, so sign once per wallet instead of per page.
+    const message = `nimdares:read:${Date.now()}`;
+    const sig = await signMessage(message);
+    if (!sig) return null;
+    const header = buildReadAuth(sig.publicKey, sig.signature, message);
+    setReadAuth(header);
+    storeAuth(network, addr, header);
+    return header;
+  }, [provider, accounts, network, signMessage]);
+
+  const signOut = useCallback(() => {
+    setReadAuth(null);
+    const addr = accounts[0];
+    if (addr) clearStoredAuth(network, addr);
+  }, [accounts, network]);
+
+  // If the active wallet account changes, drop a credential that no longer
+  // matches it rather than letting a stale signature sit in state.
+  useEffect(() => {
+    const addr = accounts[0];
+    if (!addr) return;
+    const current = readStoredAuth(network, addr);
+    // Rehydration of a persisted credential is a one-time sync on address
+    // change, not a per-render update.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setReadAuth(current);
+  }, [accounts, network]);
 
   const sendPayTransaction = useCallback(
     async (
@@ -329,6 +386,9 @@ export function NimiqWalletProvider({ children }: { children: ReactNode }) {
       getAccountSnapshot,
       getBlockNumber,
       connect,
+      readAuth,
+      signIn,
+      signOut,
     }),
     [
       status,
@@ -345,6 +405,9 @@ export function NimiqWalletProvider({ children }: { children: ReactNode }) {
       getAccountSnapshot,
       getBlockNumber,
       connect,
+      readAuth,
+      signIn,
+      signOut,
     ]
   );
 

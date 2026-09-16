@@ -16,13 +16,15 @@ import {
   Hash,
   GitBranch,
   Loader2,
+  ExternalLink,
 } from "lucide-react";
 import { useNimiqWallet } from "@/components/nimiq-provider";
 import { HudPanel } from "@/components/ui/hud-panel";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Button } from "@/components/ui/button";
 import type { Asset, RoomMode, VerifierKind } from "@/lib/types";
-import { NIM_MAX_TX_DATA_BYTES } from "@/lib/config";
+import { NIM_MAX_TX_DATA_BYTES, nimScanUrl } from "@/lib/config";
+import { base64UrlEncode } from "@/lib/client-auth";
 import { formatProviderError as extractError } from "@/lib/errors";
 
 type FundStep = "funding" | "paid" | "cancelled" | "failed";
@@ -82,18 +84,13 @@ const MODES: {
   },
 ];
 
-function base64UrlEncode(s: string): string {
-  const b64 = btoa(unescape(encodeURIComponent(s)));
-  return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
 export default function CreateDare() {
   const wallet = useNimiqWallet();
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [criteria, setCriteria] = useState("");
-  const [asset, setAsset] = useState<Asset>("NIM");
+  const asset: Asset = "NIM";
   const [amount, setAmount] = useState("1");
   const [deadline, setDeadline] = useState("");
   const [mode, setMode] = useState<RoomMode>("solo");
@@ -514,13 +511,26 @@ export default function CreateDare() {
                 </div>
               )}
               {isPaid ? (
-                <div className="flex items-start gap-3 rounded-2xl border border-primary/30 bg-primary/5 px-5 py-4">
-                  <Check className="mt-0.5 size-5 shrink-0 text-primary" />
-                  <p className="text-sm leading-relaxed text-foreground">
-                    {isRoom
-                      ? `Your seat is locked and your ${c.amount} ${c.asset} is held safely. The room plays once every seat is paid or the deadline passes.`
-                      : `Your ${c.amount} ${c.asset} stake is on-chain in escrow and the dare is live. Keep the evidence handy - you submit the proof before the deadline.`}
-                  </p>
+                <div className="flex flex-col gap-2 rounded-2xl border border-primary/30 bg-primary/5 px-5 py-4">
+                  <div className="flex items-start gap-3">
+                    <Check className="mt-0.5 size-5 shrink-0 text-primary" />
+                    <p className="text-sm leading-relaxed text-foreground">
+                      {isRoom
+                        ? `Your seat is locked and your ${c.amount} ${c.asset} is held safely. The room plays once every seat is paid or the deadline passes.`
+                        : `Your ${c.amount} ${c.asset} stake is on-chain in escrow and the dare is live. Keep the evidence handy - you submit the proof before the deadline.`}
+                    </p>
+                  </div>
+                  {c.asset === "NIM" && nimScanUrl(c.txRef) && (
+                    <a
+                      href={nimScanUrl(c.txRef) ?? undefined}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="ml-8 inline-flex items-center gap-1.5 font-mono text-[11px] text-primary underline decoration-primary/40 underline-offset-4 hover:decoration-primary"
+                    >
+                      <ExternalLink className="size-3" />
+                      escrow tx: {c.txRef?.slice(0, 12)}… · view on Nimiqscan
+                    </a>
+                  )}
                 </div>
               ) : isConfirming ? (
                 <div className="flex items-start gap-3 rounded-2xl border border-primary/30 bg-primary/5 px-5 py-4">
@@ -723,7 +733,17 @@ export default function CreateDare() {
                 return (
                   <button
                     key={m.mode}
-                    onClick={() => setMode(m.mode)}
+                    onClick={() => {
+                      setMode(m.mode);
+                      // GitHub verification binds one username, so it can only
+                      // vouch for a solo dare. Picking a room mode downgrades
+                      // the verifier to screenshot proof instead of failing at
+                      // submit time.
+                      if (m.mode !== "solo" && verifierKind === "GITHUB") {
+                        setVerifierKind("VISION");
+                        setVerifierLink("");
+                      }
+                    }}
                     className={`flex flex-1 items-center gap-3 rounded-xl border px-4 py-3 text-left transition-all ${
                       active
                         ? "border-primary bg-primary/10"
@@ -781,24 +801,12 @@ export default function CreateDare() {
         <HudPanel label="03 · Stake" icon={<Wallet className="size-3.5" />}>
           <div className="flex flex-col gap-5">
             <div className="flex gap-2">
-              {(["NIM", "USDT"] as Asset[]).map((a) => (
-                <button
-                  key={a}
-                  onClick={() => setAsset(a)}
-                  className={`rounded-xl border px-4 py-2.5 font-mono text-sm transition-all ${
-                    asset === a
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border text-muted-foreground hover:border-muted-foreground/40"
-                  }`}
-                >
-                  {a}
-                </button>
-              ))}
-              {asset === "USDT" && (
-                <span className="font-mono text-[10px] text-amber-300/80">
-                  manual funding only
-                </span>
-              )}
+              <span className="rounded-xl border border-primary bg-primary/10 px-4 py-2.5 font-mono text-sm text-primary [pointer-events:none]">
+                NIM
+              </span>
+              <span className="font-mono text-[10px] text-muted-foreground">
+                mainnet is NIM-only
+              </span>
             </div>
             <div className="grid gap-5 md:grid-cols-2">
               <Field label={`Amount (${asset})`}>
@@ -880,14 +888,17 @@ export default function CreateDare() {
               </button>
               <button
                 type="button"
+                disabled={mode !== "solo"}
                 onClick={() => {
                   setVerifierKind("GITHUB");
                   setMode("solo");
                 }}
                 className={`flex items-start gap-3 rounded-xl border px-4 py-3 text-left transition-colors ${
-                  verifierKind === "GITHUB"
-                    ? "border-primary/40 bg-primary/10"
-                    : "border-border bg-black/10 hover:border-primary/30"
+                  mode !== "solo"
+                    ? "cursor-not-allowed border-border/50 bg-black/5 opacity-50"
+                    : verifierKind === "GITHUB"
+                      ? "border-primary/40 bg-primary/10"
+                      : "border-border bg-black/10 hover:border-primary/30"
                 }`}
               >
                 <GitBranch className="mt-0.5 size-4 shrink-0 text-primary" />
@@ -897,6 +908,11 @@ export default function CreateDare() {
                     Paste a pull-request or commit URL as proof - no screenshot
                     needed. The server checks it against GitHub.
                   </span>
+                  {mode !== "solo" && (
+                    <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-amber-300/80">
+                      solo modes only · teams each verify their own work
+                    </span>
+                  )}
                 </span>
               </button>
             </div>
@@ -912,9 +928,11 @@ export default function CreateDare() {
               </Field>
             )}
             <p className="font-mono text-[11px] leading-relaxed text-muted-foreground">
-              &gt; at proof time you paste the commit or PR URL that proves the
-              work; the server verifies it against GitHub and the token never
-              reaches the browser.
+              {mode === "solo" && verifierKind === "GITHUB"
+                ? "> at proof time you paste the commit or PR URL that proves the work; the server verifies it against GitHub and the token never reaches the browser."
+                : mode !== "solo"
+                  ? "> teams and arenas are judged per player, so each member submits their own screenshot; GitHub proof stays solo-only."
+                  : "> at proof time you upload a screenshot; the AI judge checks it against the acceptance criteria."}
             </p>
           </div>
         </HudPanel>
