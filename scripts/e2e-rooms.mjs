@@ -8,6 +8,8 @@
 import { KeyPair } from "@nimiq/core";
 import { sha256 } from "@noble/hashes/sha2.js";
 
+const cronHeader = process.env.CRON_SECRET ? { "x-cron-secret": process.env.CRON_SECRET } : {};
+
 const BASE = process.argv[2] ?? "http://localhost:3100";
 
 function assert(cond, msg) {
@@ -125,7 +127,7 @@ assert(r.status === 200 && r.body?.participants?.length === 2, `participant read
 
 // 7. Unfunded room voids once the deadline passes
 await waitForDeadline();
-r = await json(`${BASE}/api/cron/sweep`, { method: "POST" });
+r = await json(`${BASE}/api/cron/sweep`, { method: "POST", headers: cronHeader });
 assert(r.status === 200 && r.body?.ok === true, `sweep runs (${JSON.stringify(r.body?.stats)})`);
 
 r = await json(`${BASE}/api/dares/${roomId}?code=${encodeURIComponent(code)}`);
@@ -172,7 +174,7 @@ r = await json(`${BASE}/api/dares/${soloId}`, { headers: { authorization: alice.
 assert(r.status === 200, `owner reads their solo dare (${r.status})`);
 
 await waitForSoloDeadline();
-r = await json(`${BASE}/api/cron/sweep`, { method: "POST" });
+r = await json(`${BASE}/api/cron/sweep`, { method: "POST", headers: cronHeader });
 r = await json(`${BASE}/api/dares/${soloId}`, { headers: { authorization: alice.auth } });
 assert(r.body?.dare?.status === "VOIDED", `unfunded solo dare voids at deadline (got ${r.body?.dare?.status})`);
 assert(r.body?.dare?.verifierResult?.status === "INVALID", `voided solo dare records INVALID verdict`);

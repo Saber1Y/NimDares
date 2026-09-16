@@ -207,8 +207,11 @@ r = await json(`${BASE}/api/wallet/reconcile`, {
 });
 assert(r.status === 200 && r.body?.reconciled === true, `reconcile reads on-chain NIM balance`);
 
-// 10. Sweep runs
-r = await json(`${BASE}/api/cron/sweep`, { method: "POST" });
+// 10. Sweep runs (sends the cron secret when the caller provides CRON_SECRET)
+const cronAuth = process.env.CRON_SECRET
+  ? { "x-cron-secret": process.env.CRON_SECRET }
+  : {};
+r = await json(`${BASE}/api/cron/sweep`, { method: "POST", headers: cronAuth });
 assert(r.status === 200 && r.body?.ok === true, `sweep runs (${JSON.stringify(r.body?.stats)})`);
 
 // ---- Room (solo/team/arena) flows ----
