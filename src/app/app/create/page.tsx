@@ -90,7 +90,7 @@ export default function CreateDare() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [criteria, setCriteria] = useState("");
-  const [asset, setAsset] = useState<Asset>("NIM");
+  const asset: Asset = "NIM";
   const [amount, setAmount] = useState("1");
   const [deadline, setDeadline] = useState("");
   const [mode, setMode] = useState<RoomMode>("solo");
@@ -801,24 +801,12 @@ export default function CreateDare() {
         <HudPanel label="03 · Stake" icon={<Wallet className="size-3.5" />}>
           <div className="flex flex-col gap-5">
             <div className="flex gap-2">
-              {(["NIM", "USDT"] as Asset[]).map((a) => (
-                <button
-                  key={a}
-                  onClick={() => setAsset(a)}
-                  className={`rounded-xl border px-4 py-2.5 font-mono text-sm transition-all ${
-                    asset === a
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border text-muted-foreground hover:border-muted-foreground/40"
-                  }`}
-                >
-                  {a}
-                </button>
-              ))}
-              {asset === "USDT" && (
-                <span className="font-mono text-[10px] text-amber-300/80">
-                  manual funding only
-                </span>
-              )}
+              <span className="rounded-xl border border-primary bg-primary/10 px-4 py-2.5 font-mono text-sm text-primary [pointer-events:none]">
+                NIM
+              </span>
+              <span className="font-mono text-[10px] text-muted-foreground">
+                mainnet is NIM-only
+              </span>
             </div>
             <div className="grid gap-5 md:grid-cols-2">
               <Field label={`Amount (${asset})`}>

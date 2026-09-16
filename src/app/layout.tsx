@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "NimDares - Stake your commitment on-chain",
   description:
-      "Decentralized goal-staking for Nimiq Pay. Stake NIM or USDT on a personal dare, prove it with AI or real API evidence, and let the escrow settle automatically.",
+      "Decentralized goal-staking for Nimiq Pay. Stake NIM on a personal dare, prove it with AI or real API evidence, and let the escrow settle automatically.",
   icons: {
     icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
     shortcut: ["/icon.svg"],

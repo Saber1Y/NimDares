@@ -201,7 +201,7 @@ async function setupPhase() {
   // 3. Fund: user -> escrow with memo nimdares:<dareId> (exact stake, real mainnet tx)
   const stakeRaw = BigInt(Math.round(create.dare.amount * 100_000));
   const memo = new TextEncoder().encode(`nimdares:${dareId}`);
-  log("funding dare", Number(stakeRaw) / 100_000 + " NIM user -> escrow with memo", `nimdares:${dareId}`);
+  log("funding dare", `${Number(stakeRaw) / 100_000} NIM user -> escrow with memo nimdares:${dareId}`);
   const fundHash = await broadcast(user, escrowAddr, stakeRaw, memo);
   state.fundHash = fundHash;
   saveState(state);

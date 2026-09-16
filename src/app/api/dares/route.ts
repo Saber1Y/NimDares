@@ -125,6 +125,13 @@ export async function POST(req: NextRequest) {
     maxCapacity,
   } = parsed.data;
 
+  if (asset === "USDT") {
+    return NextResponse.json(
+      { ok: false, error: "NimDares on mainnet is NIM-only for now; USDT escrow is not available" },
+      { status: 400 },
+    );
+  }
+
   const due = new Date(deadline);
   const maxDue = Date.now() + 90 * 86_400_000;
   if (due.getTime() <= Date.now() || due.getTime() > maxDue) {
