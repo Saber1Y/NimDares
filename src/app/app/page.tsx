@@ -19,7 +19,7 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { dareStatusLabel, verdictLabel } from "@/lib/labels";
-import { timeLeft } from "@/lib/format";
+import { timeLeft, shortHash } from "@/lib/format";
 import type { Dare, LedgerSummary } from "@/lib/types";
 
 type ApiState = {
@@ -335,9 +335,9 @@ function RoomCard({ dare }: { dare: Dare }) {
           <p className="truncate font-medium text-foreground">{dare.title}</p>
           <StatusPill label={dareStatusLabel(dare.status)} tone={live ? "live" : "neutral"} live={live} />
         </div>
-        <p className="mt-1 line-clamp-1 font-mono text-[11px] text-muted-foreground">
-          {dare.asset} · {dare.amount.toLocaleString("en-US", { maximumFractionDigits: 2 })}
-          {" "}per seat · {timeLeft(dare.deadline)}
+        <p className="mt-1 flex flex-wrap items-center gap-x-3 font-mono text-[11px] text-muted-foreground">
+          <span>{dare.asset} · {dare.amount.toLocaleString("en-US", { maximumFractionDigits: 2 })} · {timeLeft(dare.deadline)}</span>
+          <span className="ml-auto shrink-0 text-[10px] text-muted-foreground/70">by {shortHash(dare.ownerAddress, 6)}</span>
         </p>
       </div>
       <div className="flex items-center gap-3 md:shrink-0">
@@ -396,8 +396,9 @@ function DareRow({ dare }: { dare: Dare }) {
           )}
           <StatusPill label={dareStatusLabel(dare.status)} tone={tone} live={tone === "live"} />
         </div>
-        <p className="mt-1 line-clamp-1 font-mono text-[11px] text-muted-foreground">
-          {dare.asset} · {dare.amount.toLocaleString("en-US", { maximumFractionDigits: 2 })} · {timeLeft(dare.deadline)}
+        <p className="mt-1 flex flex-wrap items-center gap-x-3 font-mono text-[11px] text-muted-foreground">
+          <span>{dare.asset} · {dare.amount.toLocaleString("en-US", { maximumFractionDigits: 2 })}{" "}per seat · {timeLeft(dare.deadline)}</span>
+          <span className="ml-auto shrink-0 text-[10px] text-muted-foreground/70">by {shortHash(dare.ownerAddress, 6)}</span>
         </p>
       </div>
       <div className="flex items-center gap-3 md:shrink-0">
