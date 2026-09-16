@@ -135,6 +135,10 @@ assert(r.status === 200 && Array.isArray(r.body?.dares), `list dares`);
 assert(r.body?.dares?.length === 0, `list without owner reveals no dares`);
 assert(typeof r.body?.summary?.active === "number", `summary present`);
 r = await json(`${BASE}/api/dares?owner=${encodeURIComponent(address)}`);
+assert(r.status === 401, `owner-scoped list rejected without identity (${r.status})`);
+r = await json(`${BASE}/api/dares?owner=${encodeURIComponent(address)}`, {
+  headers: { authorization: authHeader },
+});
 assert(r.body?.dares?.some((d) => d.id === dareId), `filter dares by owner`);
 
 // 7. Solo dare reads require the owner's wallet identity
@@ -149,6 +153,10 @@ r = await json(`${BASE}/api/dares/${dareId}`, { headers: { authorization: outsid
 assert(r.status === 404, `solo dare hidden from other wallets (${r.status})`);
 r = await json(`${BASE}/api/dares/${dareId}`, { headers: { authorization: authHeader } });
 assert(r.status === 200 && r.body?.dare?.id === dareId, `owner gets solo dare by id`);
+r = await json(`${BASE}/api/dares?owner=${encodeURIComponent(address)}`, {
+  headers: { authorization: outsiderAuth },
+});
+assert(r.status === 403, `owner list rejects another account's identity (${r.status})`);
 
 // 8. User endpoint
 r = await json(`${BASE}/api/user?address=${encodeURIComponent(address)}`, {

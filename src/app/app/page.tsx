@@ -22,6 +22,10 @@ import { dareStatusLabel, verdictLabel } from "@/lib/labels";
 import { timeLeft, shortHash } from "@/lib/format";
 import type { Dare, LedgerSummary } from "@/lib/types";
 
+function base64UrlEncode(s: string): string {
+  return Buffer.from(s, "utf8").toString("base64url");
+}
+
 type ApiState = {
   status: "loading" | "ok" | "unavailable";
   dares: Dare[];
@@ -31,7 +35,7 @@ type ApiState = {
 type ModeFilter = "all" | "solo" | "team" | "arena";
 
 export default function Dashboard() {
-  const { status: walletStatus, address, balances, getAccountSnapshots } = useNimiqWallet();
+  const { status: walletStatus, address, balances, signMessage, getAccountSnapshots } = useNimiqWallet();
   // What the player can actually stake: the largest single account, since a
   // stake is paid from one account.
   const availableNim =
@@ -43,13 +47,33 @@ export default function Dashboard() {
   });
   const [rooms, setRooms] = useState<Dare[]>([]);
   const [modeFilter, setModeFilter] = useState<ModeFilter>("all");
+  const [readAuth, setReadAuth] = useState<string | null>(null);
+
+  // The owner-scoped list is only readable by the wallet that owns the
+  // address, so sign a fresh read credential once the wallet is ready.
+  useEffect(() => {
+    if (walletStatus !== "ready" || !address || readAuth) return;
+    let cancelled = false;
+    const message = `nimdares:read-list:${Date.now()}`;
+    void signMessage(message).then((sig) => {
+      if (cancelled || !sig) return;
+      setReadAuth(`Nimiq ${sig.publicKey}:${sig.signature}:${base64UrlEncode(message)}`);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [walletStatus, address, readAuth, signMessage]);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      if (address && !readAuth) return;
       const q = address ? `?owner=${encodeURIComponent(address)}` : "";
       try {
-        const res = await fetch(`/api/dares${q}`, { cache: "no-store" });
+        const res = await fetch(`/api/dares${q}`, {
+          cache: "no-store",
+          headers: readAuth ? { authorization: readAuth } : undefined,
+        });
         if (!res.ok) throw new Error(`api ${res.status}`);
         const data = await res.json();
         if (cancelled) return;
@@ -62,7 +86,7 @@ export default function Dashboard() {
     return () => {
       cancelled = true;
     };
-  }, [address]);
+  }, [address, readAuth]);
 
   useEffect(() => {
     let cancelled = false;

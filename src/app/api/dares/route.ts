@@ -65,11 +65,22 @@ export async function GET(req: NextRequest) {
   const owner = req.nextUrl.searchParams.get("owner") ?? undefined;
   const mode = req.nextUrl.searchParams.get("mode");
   const store = getStore();
-  // Without an explicit owner there is nothing safe to list: solo and team
-  // dares are private, and the arena feed is served separately below.
-  const dares = owner
-    ? (await store.listDares(owner)).map((d) => dareToClient(d))
-    : [];
+  // An owner-scoped list is only safe for the wallet that owns it. Anyone
+  // could otherwise enumerate another account's solo and private team dares.
+  let dares: ReturnType<typeof dareToClient>[] = [];
+  if (owner) {
+    const auth = await authenticate(req);
+    if (!auth.ok) {
+      return NextResponse.json({ ok: false, error: auth.error }, { status: 401 });
+    }
+    if (auth.address !== owner) {
+      return NextResponse.json(
+        { ok: false, error: "cannot list another account's dares" },
+        { status: 403 },
+      );
+    }
+    dares = (await store.listDares(owner)).map((d) => dareToClient(d));
+  }
   let rooms: ReturnType<typeof dareToClient>[] = [];
   if (mode === "open") {
     rooms = (await store.listOpenRooms()).map((d) => dareToClient(d));
