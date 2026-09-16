@@ -258,7 +258,6 @@ export default function Landing() {
               <HudPanel
                 label="A ruling, in plain words"
                 icon={<CircleAlert className="size-3.5" />}
-                badge="EXAMPLE"
               >
                 <div className="space-y-4">
                   <TerminalRow kind="EVENT">Screenshot received.</TerminalRow>
