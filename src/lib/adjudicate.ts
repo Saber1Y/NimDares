@@ -60,7 +60,7 @@ async function adjudicateGithub(dare: DareRecord): Promise<AdjudicationResult> {
 }
 
 async function adjudicateStrava(dare: DareRecord): Promise<AdjudicationResult> {
-  const activityLink = dare.verifierLink?.trim();
+  const activityLink = (dare.proofLink ?? dare.verifierLink)?.trim();
   if (!activityLink) {
     return { status: "INVALID", reason: "no Strava activity link was provided" };
   }

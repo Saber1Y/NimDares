@@ -90,7 +90,7 @@ export async function POST(
   });
 
   // Same as a solo dare: the seat is judged now so it can still be replaced.
-  const verdict = await adjudicateDare({ ...dare, proofImageUrl: proofImage ?? null });
+  const verdict = await adjudicateDare({ ...dare, proofLink: proofLink ?? null });
   if (verdict.status === "UNAVAILABLE") {
     const held = await store.updateParticipant(participantId, {
       proofAttempts: participant.proofAttempts,

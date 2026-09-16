@@ -13,6 +13,7 @@ import {
   Users,
   Globe,
   Hash,
+  GitBranch,
   Loader2,
 } from "lucide-react";
 import { useNimiqWallet } from "@/components/nimiq-provider";
@@ -50,9 +51,6 @@ type CreateState =
       txRef: string | null;
     }
   | { phase: "error"; message: string };
-
-// Screenshot proof is the only verifier: one evidence path, one adjudicator.
-const VERIFIER: VerifierKind = "VISION";
 
 /** Balance refresh cadence on the stake panel. */
 const NIM_SNAPSHOT_POLL_MS = 30_000;
@@ -99,6 +97,8 @@ export default function CreateDare() {
   const [deadline, setDeadline] = useState("");
   const [mode, setMode] = useState<RoomMode>("solo");
   const [capacity, setCapacity] = useState("5");
+  const [verifierKind, setVerifierKind] = useState<VerifierKind>("VISION");
+  const [verifierLink, setVerifierLink] = useState("");
   const [state, setState] = useState<CreateState>({ phase: "idle" });
   const [nimSnapshots, setNimSnapshots] = useState<
     Awaited<ReturnType<typeof wallet.getAccountSnapshots>>
@@ -302,6 +302,17 @@ export default function CreateDare() {
       setState({ phase: "error", message: "all fields are required" });
       return;
     }
+    if (verifierKind === "GITHUB" && mode !== "solo") {
+      setState({
+        phase: "error",
+        message: "GitHub verification is available for solo dares only",
+      });
+      return;
+    }
+    if (verifierKind === "GITHUB" && !verifierLink.trim()) {
+      setState({ phase: "error", message: "enter the GitHub username to verify" });
+      return;
+    }
     const amountNum = Number(amount);
     if (amountNum <= 0) {
       setState({ phase: "error", message: "amount must be greater than zero" });
@@ -348,7 +359,8 @@ export default function CreateDare() {
           asset,
           amount: Number(amount),
           deadline: new Date(deadline).toISOString(),
-          verifierKind: VERIFIER,
+          verifierKind,
+          verifierLink: verifierKind === "GITHUB" ? verifierLink.trim() : undefined,
           mode,
           maxCapacity: mode === "solo" ? undefined : Number(capacity),
         }),
@@ -822,21 +834,60 @@ export default function CreateDare() {
           icon={<CircleAlert className="size-3.5" />}
         >
           <div className="flex flex-col gap-4">
-            <div className="flex items-start gap-3 rounded-xl border border-primary/40 bg-primary/10 px-4 py-3">
-              <ImageIcon className="mt-0.5 size-4 shrink-0 text-primary" />
-              <div className="flex flex-col gap-1">
-                <span className="text-sm text-foreground">
-                  Screenshot proof
+            <div className="grid gap-3 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => setVerifierKind("VISION")}
+                className={`flex items-start gap-3 rounded-xl border px-4 py-3 text-left transition-colors ${
+                  verifierKind === "VISION"
+                    ? "border-primary/40 bg-primary/10"
+                    : "border-border bg-black/10 hover:border-primary/30"
+                }`}
+              >
+                <ImageIcon className="mt-0.5 size-4 shrink-0 text-primary" />
+                <span className="flex flex-col gap-1">
+                  <span className="text-sm text-foreground">Screenshot proof</span>
+                  <span className="text-xs leading-relaxed text-muted-foreground">
+                    An AI judge checks a screenshot against your acceptance criteria.
+                  </span>
                 </span>
-                <span className="text-xs leading-relaxed text-muted-foreground">
-                  You submit a screenshot before the deadline and an AI judge
-                  rules on it against your acceptance criteria.
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setVerifierKind("GITHUB");
+                  setMode("solo");
+                }}
+                className={`flex items-start gap-3 rounded-xl border px-4 py-3 text-left transition-colors ${
+                  verifierKind === "GITHUB"
+                    ? "border-primary/40 bg-primary/10"
+                    : "border-border bg-black/10 hover:border-primary/30"
+                }`}
+              >
+                <GitBranch className="mt-0.5 size-4 shrink-0 text-primary" />
+                <span className="flex flex-col gap-1">
+                  <span className="text-sm text-foreground">GitHub activity</span>
+                  <span className="text-xs leading-relaxed text-muted-foreground">
+                    Verify public activity from your GitHub account after the dare starts.
+                  </span>
                 </span>
-              </div>
+              </button>
             </div>
+            {verifierKind === "GITHUB" && (
+              <Field label="GitHub username">
+                <input
+                  value={verifierLink}
+                  onChange={(e) => setVerifierLink(e.target.value)}
+                  placeholder="Saber1Y"
+                  autoComplete="username"
+                  className="hud-input"
+                />
+              </Field>
+            )}
             <p className="font-mono text-[11px] leading-relaxed text-muted-foreground">
-              &gt; a commit history, a run summary, a receipt - anything works
-              as long as the criteria above say what the screenshot has to show.
+              &gt; at proof time you paste the commit or PR URL that proves the
+              work; the server verifies it against GitHub and the token never
+              reaches the browser.
             </p>
           </div>
         </HudPanel>

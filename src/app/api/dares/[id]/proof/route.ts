@@ -118,7 +118,13 @@ export async function POST(
     proofAttempts: attempts,
     verifierLink: dare.verifierLink ?? proofLink ?? null,
     status: "SUBMITTED",
-    verifierResult: { status: "WAITING", reason: "queued for adjudication" },
+    verifierResult: {
+      status: "WAITING",
+      reason: "queued for adjudication",
+      // Solo dares have no proofLink column: keep the submitted artifact in
+      // the verifier record so the deadline sweep can still judge offline cases.
+      observations: proofLink ?? undefined,
+    },
   });
 
   // Judge now rather than at the deadline, so a rejected or inconclusive proof
@@ -129,7 +135,12 @@ export async function POST(
     // rule at the deadline.
     const held = await store.updateDare(id, {
       proofAttempts: dare.proofAttempts,
-      verifierResult: { status: "UNAVAILABLE", reason: verdict.reason, source: verdict.source },
+      verifierResult: {
+        status: "UNAVAILABLE",
+        reason: verdict.reason,
+        source: verdict.source,
+        observations: proofLink ?? undefined,
+      },
     });
     return NextResponse.json(
       {
@@ -144,7 +155,12 @@ export async function POST(
     );
   }
 
-  await store.updateDare(id, { verifierResult: verdictToRecord(verdict) });
+  await store.updateDare(id, {
+    verifierResult: verdictToRecord({
+      ...verdict,
+      observations: proofLink ?? verdict.observations,
+    }),
+  });
 
   // A verified solo dare settles immediately: the stake goes back as soon as
   // the proof stands up, with no wait for the deadline.

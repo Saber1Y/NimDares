@@ -44,6 +44,9 @@ export interface DareRecord {
   status: DareStatus;
   verifierKind: VerifierKind;
   verifierLink: string | null;
+  /** Proof artifact supplied for non-image verifiers (URL). Not a stored column
+   *  on solo dares - for solo dares it travels in verifierResult.observations. */
+  proofLink?: string | null;
   verifierResult: DareVerifierResult | null;
   evidenceSpec: unknown;
   proofImageUrl: string | null;

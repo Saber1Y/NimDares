@@ -860,12 +860,14 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
               ) : (
                 <div className="flex flex-col gap-4">
                   <p className="text-sm leading-relaxed text-muted-foreground">
-                    Link your {cur.verifierKind === "GITHUB" ? "GitHub commit activity" : "Strava activity"} as proof.
+                    {cur.verifierKind === "GITHUB"
+                      ? "Paste the commit, pull request, or profile URL that proves the work. The server verifies it against GitHub by your username."
+                      : "Link your Strava activity as proof."}
                   </p>
                   <input
                     value={proofLink}
                     onChange={(e) => setProofLink(e.target.value)}
-                    placeholder={cur.verifierKind === "GITHUB" ? "https://github.com/user" : "https://www.strava.com/activities/…"}
+                    placeholder={cur.verifierKind === "GITHUB" ? "https://github.com/owner/repo/pull/123" : "https://www.strava.com/activities/…"}
                     className="hud-input"
                   />
                   <div className="flex flex-wrap items-center gap-3">
@@ -957,12 +959,14 @@ export default function DareDetail({ id, initial }: { id: string; initial: Dare 
               ) : (
                 <div className="flex flex-col gap-4">
                   <p className="text-sm leading-relaxed text-muted-foreground">
-                    Link your {cur.verifierKind === "GITHUB" ? "GitHub commit activity" : "Strava activity"} as proof.
+                    {cur.verifierKind === "GITHUB"
+                      ? "Paste the commit, pull request, or profile URL that proves the work. The server verifies it against GitHub by your username."
+                      : "Link your Strava activity as proof."}
                   </p>
                   <input
                     value={proofLink}
                     onChange={(e) => setProofLink(e.target.value)}
-                    placeholder={cur.verifierKind === "GITHUB" ? "https://github.com/user" : "https://www.strava.com/activities/…"}
+                    placeholder={cur.verifierKind === "GITHUB" ? "https://github.com/owner/repo/pull/123" : "https://www.strava.com/activities/…"}
                     className="hud-input"
                   />
                   <div className="flex flex-wrap items-center gap-3">

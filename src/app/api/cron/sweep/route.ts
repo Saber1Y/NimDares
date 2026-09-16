@@ -138,7 +138,7 @@ export async function POST(req: NextRequest) {
       let unavailable = false;
       for (const p of participants) {
         if (p.aiVerdict !== "WAITING") continue;
-        if (!p.proofImageUrl) {
+        if (!p.proofImageUrl && !p.proofLink) {
           await store.updateParticipant(p.id, {
             aiVerdict: "INVALID",
             verdictReason: "no proof submitted before deadline",
@@ -148,6 +148,7 @@ export async function POST(req: NextRequest) {
         const verdict = await adjudicateDare({
           ...dare,
           proofImageUrl: p.proofImageUrl,
+          proofLink: p.proofLink,
           verifierLink: dare.verifierLink,
         });
         if (verdict.status === "UNAVAILABLE") {
@@ -276,7 +277,11 @@ export async function POST(req: NextRequest) {
     if (verdict.status === "UNAVAILABLE") {
       stats.unresolved_unavailable += 1;
       await store.updateDare(dare.id, {
-        verifierResult: { status: "UNAVAILABLE", reason: verdict.reason },
+        verifierResult: {
+          status: "UNAVAILABLE",
+          reason: verdict.reason,
+          observations: dare.verifierResult?.observations,
+        },
       });
       continue;
     }

@@ -126,6 +126,15 @@ export async function POST(req: NextRequest) {
   const cap = isMulti ? (maxCapacity ?? 5) : 1;
   const isPrivate = mode !== "arena";
 
+  // A room's seats are distinct GitHub users, so one bound username cannot
+  // verify everyone's work.
+  if (verifierKind === "GITHUB" && isMulti) {
+    return NextResponse.json(
+      { ok: false, error: "GitHub verification is available for solo dares only" },
+      { status: 400 },
+    );
+  }
+
   const amountRaw =
     asset === "NIM"
       ? BigInt(Math.round(amount * NIM_DECIMALS))
