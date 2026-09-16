@@ -36,7 +36,9 @@ async function json(url, opts) {
 const kp = KeyPair.generate();
 const publicKey = kp.publicKey.toHex();
 const message = `nimdares-adjudicate-test:${Date.now()}`;
-const digest = sha256(new TextEncoder().encode(message));
+const digest = sha256(new TextEncoder().encode(
+  `\x16Nimiq Signed Message:\n${message.length}${message}`
+));
 const signature = kp.sign(digest).toHex();
 const authHeader = `Nimiq ${publicKey}:${signature}:${Buffer.from(message).toString("base64url")}`;
 const expectedAddress = kp.toAddress().toUserFriendlyAddress();
@@ -49,14 +51,12 @@ console.log(`\n=== NimDares Adjudication E2E ===`);
 console.log(`Target: ${BASE}`);
 console.log(`Address: ${expectedAddress}\n`);
 
-// Step 1: Auth
+// Step 1: Auth via user endpoint (validates the signed header end-to-end)
 console.log("--- Step 1: Auth ---");
-let r = await json(`${BASE}/api/auth/verify`, {
-  method: "POST",
-  headers: { "content-type": "application/json" },
-  body: JSON.stringify({ message, publicKey, signature }),
+let r = await json(`${BASE}/api/user?address=${encodeURIComponent(expectedAddress)}`, {
+  headers: { authorization: authHeader },
 });
-assert(r.status === 200 && r.body?.ok === true, `auth/verify accepts valid signature`);
+assert(r.status === 200 && r.body?.ok === true, `auth via user endpoint (${r.status})`);
 assert(r.body?.user?.address === expectedAddress, `address derived correctly`);
 
 // Step 2: Create a VISION dare
@@ -82,8 +82,27 @@ assert(r.status === 201 && r.body?.ok === true, `dare created (${r.status})`);
 const dareId = r.body?.dare?.id;
 assert(typeof dareId === "string" && dareId.length > 0, `dare id: ${dareId}`);
 
-// Step 3: Submit proof image
-console.log("\n--- Step 3: Submit proof image ---");
+// Step 3: Fund the stake. Against the in-memory store a txRef of "test"
+// records the deposit without chain validation (see confirm.ts); against a
+// real store this requires an actual escrow payment and will hang/reject.
+console.log("\n--- Step 3: Fund stake ---");
+r = await json(`${BASE}/api/dares/${dareId}/fund`, {
+  method: "POST",
+  headers: { "content-type": "application/json", authorization: authHeader },
+  body: JSON.stringify({ asset: "NIM", txRef: "test" }),
+});
+if (r.status === 200 && r.body?.status === "funded") {
+  console.log("  (funded via test hook — simulated escrow deposit, not on-chain)");
+} else {
+  console.log(
+    `  warning: funding did not settle via test hook (${r.status}: ${
+      r.body?.error ?? r.body?.status ?? "unknown"
+    }) — proof will be rejected by the funding gate`
+  );
+}
+
+// Step 4: Submit proof image
+console.log("\n--- Step 4: Submit proof image ---");
 r = await json(`${BASE}/api/dares/${dareId}/proof`, {
   method: "POST",
   headers: { "content-type": "application/json", authorization: authHeader },
@@ -105,13 +124,14 @@ if (remainMs > 0) {
   await sleep(remainMs + 500);
 }
 
-// Step 4: Run adjudication via sweep endpoint
-console.log("\n--- Step 4: Trigger adjudication (sweep) ---");
-r = await json(`${BASE}/api/cron/sweep`, { method: "POST" });
+// Step 5: Run adjudication via sweep endpoint
+console.log("\n--- Step 5: Trigger adjudication (sweep) ---");
+const cronAuth = process.env.CRON_SECRET ? { "x-cron-secret": process.env.CRON_SECRET } : {};
+r = await json(`${BASE}/api/cron/sweep`, { method: "POST", headers: cronAuth });
 assert(r.status === 200 && r.body?.ok === true, `sweep ran (${JSON.stringify(r.body?.stats)})`);
 
-// Step 5: Fetch the dare to see the verdict
-console.log("\n--- Step 5: Fetch verdict ---");
+// Step 6: Fetch the dare to see the verdict
+console.log("\n--- Step 6: Fetch verdict ---");
 r = await json(`${BASE}/api/dares/${dareId}`, { headers: { authorization: authHeader } });
 assert(r.status === 200, `dare fetched (${r.status})`);
 const dare = r.body?.dare;
@@ -136,8 +156,8 @@ if (dare?.verifierResult) {
   }
 }
 
-// Step 6: Confirm the server actually ran the real Gemini adjudication
-console.log("\n--- Step 6: Environment check ---");
+// Step 7: Confirm the server actually ran the real Gemini adjudication
+console.log("\n--- Step 7: Environment check ---");
 const hasGeminiKey = !!process.env.GEMINI_API_KEY;
 const serverVerdict = dare?.verifierResult;
 const servedByRealModel =

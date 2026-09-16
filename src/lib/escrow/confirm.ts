@@ -184,6 +184,24 @@ export async function confirmNimFunding(
     };
   }
 
+  // Dev/test hook: the in-memory store cannot reach the Nimiq chain, so a
+  // txRef of "test" records the stake as funded without chain validation so
+  // e2e harnesses can exercise the proof/adjudication path. Unreachable in
+  // production (the memory store only exists when DATABASE_URL is unset).
+  if (store.label === "memory" && opts.txRef === "test") {
+    const now = new Date();
+    const fakeHash = `test-${dare.id}`;
+    if (seat) {
+      await store.updateParticipant(seat.id, { fundingTxHash: fakeHash, fundedAt: now });
+      if (dare.status === "LOBBY") {
+        await store.updateDare(dare.id, { status: "ACTIVE", fundedAt: now });
+      }
+    } else {
+      await store.updateDare(dare.id, { status: "ACTIVE", fundedAt: now, escrowTxHash: fakeHash });
+    }
+    return { status: "funded", txHash: fakeHash };
+  }
+
   const ref = opts.txRef ?? (seat ? seat.fundingTxHash : dare.escrowTxHash);
   if (ref) {
     const hash = nimTxHashFromRef(ref);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { motion } from "motion/react";
 import {
@@ -22,8 +22,14 @@ import { dareStatusLabel, verdictLabel } from "@/lib/labels";
 import { timeLeft, shortHash } from "@/lib/format";
 import type { Dare, LedgerSummary } from "@/lib/types";
 
+// Browser-native base64url encoding. `Buffer` is polyfilled by Next.js but
+// node/webpack polyfill versions disagree on `base64url` support, so encode
+// through TextEncoder + btoa instead.
 function base64UrlEncode(s: string): string {
-  return Buffer.from(s, "utf8").toString("base64url");
+  const bytes = new TextEncoder().encode(s);
+  let bin = "";
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
 type ApiState = {
@@ -48,27 +54,27 @@ export default function Dashboard() {
   const [rooms, setRooms] = useState<Dare[]>([]);
   const [modeFilter, setModeFilter] = useState<ModeFilter>("all");
   const [readAuth, setReadAuth] = useState<string | null>(null);
+  const [signingIn, setSigningIn] = useState(false);
 
   // The owner-scoped list is only readable by the wallet that owns the
-  // address, so sign a fresh read credential once the wallet is ready.
-  useEffect(() => {
-    if (walletStatus !== "ready" || !address || readAuth) return;
-    let cancelled = false;
+  // address. Signing is user-triggered (wallet dialogs require a user
+  // gesture and firing one automatically on mount is rejected by the host),
+  // so the dashboard loads the public arena + summary first and dares fill
+  // in once the user signs in.
+  const signIn = useCallback(async () => {
+    if (walletStatus !== "ready" || !address || readAuth || signingIn) return;
+    setSigningIn(true);
     const message = `nimdares:read-list:${Date.now()}`;
-    void signMessage(message).then((sig) => {
-      if (cancelled || !sig) return;
-      setReadAuth(`Nimiq ${sig.publicKey}:${sig.signature}:${base64UrlEncode(message)}`);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [walletStatus, address, readAuth, signMessage]);
+    const sig = await signMessage(message);
+    setSigningIn(false);
+    if (!sig) return;
+    setReadAuth(`Nimiq ${sig.publicKey}:${sig.signature}:${base64UrlEncode(message)}`);
+  }, [walletStatus, address, readAuth, signingIn, signMessage]);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      if (address && !readAuth) return;
-      const q = address ? `?owner=${encodeURIComponent(address)}` : "";
+      const q = address && readAuth ? `?owner=${encodeURIComponent(address)}` : "";
       try {
         const res = await fetch(`/api/dares${q}`, {
           cache: "no-store",
@@ -327,7 +333,19 @@ export default function Dashboard() {
               body="No dares service is reachable. API routes are not deployed or DATABASE_URL is unset. Resolve once the backend is running."
             />
           )}
-          {api.status === "ok" && filteredDares.length === 0 && (
+          {api.status === "ok" && walletStatus === "ready" && !readAuth && (
+            <EmptyLedger
+              icon={<Wallet className="size-6 text-muted-foreground" />}
+              title="Sign in to see your dares"
+              body="Your wallet is connected. Sign a read credential so NimDares can show the dares you own."
+              action={
+                <Button onClick={() => void signIn()} disabled={signingIn}>
+                  {signingIn ? "Signing in…" : "Sign in"}
+                </Button>
+              }
+            />
+          )}
+          {api.status === "ok" && filteredDares.length === 0 && readAuth && (
             <EmptyLedger
               icon={<Swords className="size-6 text-muted-foreground" />}
               title="No dares yet"
@@ -380,10 +398,12 @@ function EmptyLedger({
   icon,
   title,
   body,
+  action,
 }: {
   icon: React.ReactNode;
   title: string;
   body: string;
+  action?: React.ReactNode;
 }) {
   return (
     <div className="flex flex-col items-center gap-4 py-10 text-center">
@@ -394,6 +414,7 @@ function EmptyLedger({
         <p className="font-mono text-[12px] uppercase tracking-[0.16em] text-foreground">{title}</p>
         <p className="mt-2 max-w-md text-sm leading-relaxed text-muted-foreground">{body}</p>
       </div>
+      {action}
     </div>
   );
 }

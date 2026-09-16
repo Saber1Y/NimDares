@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
 import {
   ArrowLeft,
@@ -17,6 +17,7 @@ import {
   Coins,
   Loader2,
   Trash2,
+  Wallet,
 } from "lucide-react";
 import { useNimiqWallet } from "@/components/nimiq-provider";
 import { HudPanel } from "@/components/ui/hud-panel";
@@ -126,6 +127,7 @@ export default function DareDetail({
   );
   const [joining, setJoining] = useState(false);
   const [canceling, setCanceling] = useState(false);
+  const [signingIn, setSigningIn] = useState(false);
   // Funding has its own note, rendered beside the fund button. Sharing `submit`
   // pushed payment status down into the proof panel at the foot of the page.
   const [fundingNote, setFundingNote] = useState<
@@ -133,19 +135,18 @@ export default function DareDetail({
   >(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    const needsReadAuth = initial === null;
-    if (!needsReadAuth || walletStatus !== "ready" || readAuth) return;
-    let cancelled = false;
+  // Signing is user-triggered (wallet dialogs require a user gesture per
+  // Nimiq Pay host rules).  The dare only appears once the user signs.
+  const needsReadAuth = initial === null && walletStatus === "ready";
+  const signIn = useCallback(async () => {
+    if (!needsReadAuth || readAuth || signingIn) return;
+    setSigningIn(true);
     const message = `nimdares:read:${id}:${Date.now()}`;
-    void wallet.signMessage(message).then((sig) => {
-      if (cancelled || !sig) return;
-      setReadAuth(`Nimiq ${sig.publicKey}:${sig.signature}:${base64UrlEncode(message)}`);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [initial, walletStatus, readAuth, id, wallet]);
+    const sig = await wallet.signMessage(message);
+    setSigningIn(false);
+    if (!sig) return;
+    setReadAuth(`Nimiq ${sig.publicKey}:${sig.signature}:${base64UrlEncode(message)}`);
+  }, [needsReadAuth, readAuth, signingIn, wallet, id]);
 
   useEffect(() => {
     if (dare) return;
@@ -213,6 +214,30 @@ export default function DareDetail({
     const timer = setInterval(load, 6000);
     return () => clearInterval(timer);
   }, [dare, code, readAuth]);
+
+  // Private solo dare: server didn't preload it (initial === null), so the
+  // client must sign a read credential before the ledger reveals it.
+  if (!initial && !dare && !readAuth && walletStatus === "ready") {
+    return (
+      <div className="mx-auto flex max-w-2xl flex-col items-center gap-6 py-24 text-center">
+        <div className="flex size-14 items-center justify-center rounded-2xl border border-border bg-muted/30">
+          <Wallet className="size-6 text-muted-foreground" />
+        </div>
+        <div>
+          <p className="font-mono text-[12px] uppercase tracking-[0.16em] text-foreground">
+            SIGN IN REQUIRED
+          </p>
+          <p className="mt-2 max-w-md text-sm leading-relaxed text-muted-foreground">
+            Sign a read credential so NimDares can verify you are the owner of
+            this dare.
+          </p>
+        </div>
+        <Button onClick={() => void signIn()} disabled={signingIn}>
+          {signingIn ? "Signing in…" : "Sign in to view"}
+        </Button>
+      </div>
+    );
+  }
 
   if (missing) {
     return (
