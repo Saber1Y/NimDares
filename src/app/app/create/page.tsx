@@ -9,7 +9,6 @@ import {
   Wallet,
   CircleAlert,
   Check,
-  Copy,
   ImageIcon,
   Users,
   Globe,
@@ -22,6 +21,7 @@ import { useNimiqWallet } from "@/components/nimiq-provider";
 import { HudPanel } from "@/components/ui/hud-panel";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Button } from "@/components/ui/button";
+import { ShareDare } from "@/components/share-dare";
 import type { Asset, RoomMode, VerifierKind } from "@/lib/types";
 import { NIM_MAX_TX_DATA_BYTES, nimScanUrl } from "@/lib/config";
 import { base64UrlEncode } from "@/lib/client-auth";
@@ -102,7 +102,6 @@ export default function CreateDare() {
     Awaited<ReturnType<typeof wallet.getAccountSnapshots>>
   >([]);
   const [nimSnapshotLoading, setNimSnapshotLoading] = useState(false);
-  const [inviteCopied, setInviteCopied] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // The create signature proves wallet ownership and is valid for reads, so
   // the confirmation poll can reuse it instead of prompting the wallet again.
@@ -605,20 +604,6 @@ export default function CreateDare() {
                       Enter lobby <ArrowRight className="size-4" />
                     </Button>
                   </div>
-                  <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-border pt-3">
-                    <button
-                      onClick={() => {
-                        const inviteUrl = `${window.location.origin}/app/dare/${c.dareId}?code=${encodeURIComponent(roomCode)}`;
-                        navigator.clipboard.writeText(inviteUrl).catch(() => {});
-                        setInviteCopied(true);
-                        setTimeout(() => setInviteCopied(false), 1500);
-                      }}
-                      className="inline-flex items-center gap-2 font-mono text-[11px] text-muted-foreground transition-colors hover:text-primary"
-                    >
-                      <Copy className="size-3.5" /> Copy invite link
-                    </button>
-                    {inviteCopied && <StatusPill label="INVITE LINK COPIED" tone="live" live />}
-                  </div>
                 </div>
               )}
               <div className="flex flex-wrap gap-3">
@@ -626,7 +611,15 @@ export default function CreateDare() {
                   {isPaid ? "Open the dare" : "Open in lobby"}{" "}
                   <ArrowRight className="size-4" />
                 </Button>
-                <Button href="/app">
+                <ShareDare
+                  dareId={c.dareId}
+                  title={title.trim()}
+                  amount={c.amount}
+                  asset={c.asset}
+                  isRoom={isRoom}
+                  roomCode={c.roomCode}
+                />
+                <Button href="/app" variant="ghost">
                   <ArrowLeft className="size-4" /> Back to console
                 </Button>
               </div>

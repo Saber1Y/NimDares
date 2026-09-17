@@ -24,6 +24,7 @@ import { useNimiqWallet } from "@/components/nimiq-provider";
 import { HudPanel } from "@/components/ui/hud-panel";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Button } from "@/components/ui/button";
+import { ShareDare } from "@/components/share-dare";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Dare, Participant } from "@/lib/types";
 import { NIM_MAX_TX_DATA_BYTES, MAX_PROOF_ATTEMPTS, nimScanUrl } from "@/lib/config";
@@ -747,6 +748,15 @@ export default function DareDetail({
           {cur.title}
         </h1>
         <p className="mt-3 max-w-xl leading-relaxed text-muted-foreground">{cur.description}</p>
+        <ShareDare
+          className="mt-5"
+          dareId={cur.id}
+          title={cur.title}
+          amount={cur.amount}
+          asset={cur.asset}
+          isRoom={isRoom}
+          roomCode={cur.roomCode}
+        />
       </motion.div>
 
       {/* status strip */}
