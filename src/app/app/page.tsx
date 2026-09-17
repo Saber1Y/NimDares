@@ -236,11 +236,15 @@ export default function Dashboard() {
       </motion.div>
 
       {/* metric row */}
-      <div className="grid grid-cols-2 gap-8 md:grid-cols-3">
+      <div className="grid grid-cols-2 gap-8 md:grid-cols-4">
         {[
           { label: "Active dares", value: api.summary ? String(api.summary.active) : null },
           { label: "NIM at stake", value: api.summary ? api.summary.escrowedNim.toFixed(2) : null },
           { label: "Resolved", value: api.summary ? String(api.summary.won + api.summary.lost) : null },
+          {
+            label: "Total transactions",
+            value: api.summary ? api.summary.transactions.toLocaleString("en-US") : null,
+          },
         ].map((m, i) => (
           <motion.div
             key={m.label}

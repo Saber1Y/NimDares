@@ -66,6 +66,7 @@ export interface LedgerSummary {
   escrowedUsdt: number;
   won: number;
   lost: number;
+  transactions: number;
 }
 
 export type RoomMode = "solo" | "team" | "arena";

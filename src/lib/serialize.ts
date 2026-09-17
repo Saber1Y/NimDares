@@ -70,6 +70,7 @@ export function summaryToClient(s: LedgerSummary) {
     escrowedUsdt: Number(s.escrowedUsdt) / 1_000_000,
     won: s.won,
     lost: s.lost,
+    transactions: s.transactions,
   };
 }
 

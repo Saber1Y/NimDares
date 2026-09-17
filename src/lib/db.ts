@@ -123,6 +123,8 @@ export interface LedgerSummary {
   escrowedUsdt: bigint;
   won: number;
   lost: number;
+  /** Every escrow movement recorded: deposits, payouts, refunds and slashes. */
+  transactions: number;
 }
 
 export interface TxRecordRow {
@@ -566,12 +568,14 @@ class PrismaLedgerStore implements LedgerStore {
     const usdtAgg = await this.db().escrowBalance.aggregate({ where: { asset: "USDT" }, _sum: { balanceRaw: true } });
     const wonAgg = await this.db().dare.count({ where: { status: "WON" } });
     const lostAgg = await this.db().dare.count({ where: { status: "LOST" } });
+    const txCount = await this.db().txRecord.count();
     return {
       active: activeAgg,
       escrowedNim: nimAgg._sum.balanceRaw ?? 0n,
       escrowedUsdt: usdtAgg._sum.balanceRaw ?? 0n,
       won: wonAgg,
       lost: lostAgg,
+      transactions: txCount,
     };
   }
 
@@ -828,6 +832,7 @@ class MemoryLedgerStore implements LedgerStore {
       escrowedUsdt,
       won: statuses.filter((s) => s === "WON").length,
       lost: statuses.filter((s) => s === "LOST").length,
+      transactions: this.txs.length,
     };
   }
 
