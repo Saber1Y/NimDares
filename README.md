@@ -16,7 +16,7 @@ Live frontend and API: [nimdares.vercel.app](https://nimdares.vercel.app) · On-
 
 [Quickstart](#see-it-in-one-command) · [Architecture](#architecture) · [Safety](#safety-enforced-in-code) · [Demo](#the-one-flow-demo) · [Deploy](#deploy)
 
-Built for the Nimiq Pay Mini Apps Competition Cycle 3 and released under the MIT license.
+Built for the Nimiq Pay Mini Apps Competition Cycle 2 and released under the MIT license.
 
 NimDares is a non-custodial application interface, not a bank, exchange, investment product, or source of financial advice.
 
