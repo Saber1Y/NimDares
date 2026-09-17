@@ -90,6 +90,8 @@ model Dare {
   status         DareStatus    @default(PENDING_FUNDING)
   verifierKind   VerifierKind
   // Machine-checkable requirements generated at creation and shown before staking.
+  // IANA zone the dare was created in; screenshot times are read in it.
+  timezone       String?
   evidenceSpec   Json?
   proofHash      String?
   proofAttempts  Int           @default(0)

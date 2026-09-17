@@ -24,6 +24,7 @@ export interface NewDareInput {
   verifierKind: VerifierKind;
   verifierLink?: string | null;
   evidenceSpec?: unknown;
+  timezone?: string | null;
   maxCapacity?: number;
   isPrivate?: boolean;
   roomCode?: string | null;
@@ -48,6 +49,8 @@ export interface DareRecord {
    *  on solo dares - for solo dares it travels in verifierResult.observations. */
   proofLink?: string | null;
   verifierResult: DareVerifierResult | null;
+  /** IANA zone the dare was created in; null for dares made before it was captured. */
+  timezone: string | null;
   evidenceSpec: unknown;
   proofImageUrl: string | null;
   proofHash: string | null;
@@ -213,6 +216,7 @@ function fromPrismaDare(d: {
   verifierKind: VerifierKind;
   verifierLink: string | null;
   verifierResult: unknown;
+  timezone: string | null;
   evidenceSpec: unknown;
   proofImageUrl: string | null;
   proofHash: string | null;
@@ -239,6 +243,7 @@ function fromPrismaDare(d: {
     verifierKind: d.verifierKind,
     verifierLink: d.verifierLink,
     verifierResult: (d.verifierResult as DareVerifierResult | null) ?? null,
+    timezone: d.timezone,
     evidenceSpec: d.evidenceSpec ?? null,
     proofImageUrl: d.proofImageUrl,
     proofHash: d.proofHash,
@@ -330,6 +335,7 @@ class PrismaLedgerStore implements LedgerStore {
         roomCode: input.roomCode ?? null,
         status: (input.maxCapacity ?? 1) > 1 ? "LOBBY" : "PENDING_FUNDING",
         evidenceSpec: (input.evidenceSpec ?? null) as object | undefined,
+        timezone: input.timezone ?? null,
       },
       include: { owner: true },
     });
@@ -383,6 +389,7 @@ class PrismaLedgerStore implements LedgerStore {
     if (patch.proofHash !== undefined) data.proofHash = patch.proofHash;
     if (patch.proofAttempts !== undefined) data.proofAttempts = patch.proofAttempts;
     if (patch.evidenceSpec !== undefined) data.evidenceSpec = patch.evidenceSpec;
+    if (patch.timezone !== undefined) data.timezone = patch.timezone;
     if (patch.escrowTxHash !== undefined) data.escrowTxHash = patch.escrowTxHash;
     if (patch.payoutTxHash !== undefined) data.payoutTxHash = patch.payoutTxHash;
     if (patch.payoutStatus !== undefined) data.payoutStatus = patch.payoutStatus;
@@ -628,6 +635,7 @@ class MemoryLedgerStore implements LedgerStore {
       verifierLink: input.verifierLink ?? null,
       verifierResult: null,
       evidenceSpec: input.evidenceSpec ?? null,
+      timezone: input.timezone ?? null,
       proofImageUrl: null,
       proofHash: null,
       proofAttempts: 0,

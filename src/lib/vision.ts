@@ -8,6 +8,7 @@ import {
   modelChain,
   modelChainFailureReason,
 } from "@/lib/gemini-chain";
+import { formatInZone, zoneOrUtc } from "@/lib/time";
 
 export interface VisionVerdict {
   status: "VALID" | "INVALID" | "AMBIGUOUS" | "UNAVAILABLE";
@@ -78,8 +79,11 @@ Acceptance criteria: {{CRITERIA}}
 {{SPEC}}
 
 TIME
-The dare was created {{CREATED}} and runs until {{DEADLINE}}. Today is {{TODAY}}.
-Any date visible in the screenshot must fall inside that window to count. Quote the date you see in your observations; if no date is visible, say so rather than assuming one.
+All times below are on the user's own clock, in {{ZONE}}.
+The dare was created {{CREATED}} and runs until {{DEADLINE}}. Right now it is {{TODAY}}.
+A screenshot shows that same local clock and rarely names a zone, so read every date and time you see as {{ZONE}} unless the image says otherwise. Do not convert it to any other zone.
+A date visible in the screenshot must fall inside the window to count. When the screenshot shows only a calendar day, treat it as inside the window if any part of that day falls inside it - a day-only stamp cannot be pinned to the hour, and an uncertain proof must not be scored as a miss.
+Quote the date you see in your observations; if no date is visible, say so rather than assuming one.
 
 HOW TO SCORE
 - completionProbability is about this goal only. An image that is well made, recent, or impressive but shows something else scores near 0.
@@ -110,13 +114,17 @@ export async function runVisionAdjudication(dare: DareRecord): Promise<VisionVer
     ? `THE CHECKLIST (agreed when the dare was created)\nThe screenshot should be of ${spec.expectedArtifact}, and must show:\n${spec.requirements.map((r, i) => `${i + 1}. ${r}`).join("\n")}`
     : "THE CHECKLIST\nNone was generated for this dare. Judge against the acceptance criteria above.";
 
+  // The judge compares against what a person can read in a screenshot, so the
+  // whole window is expressed on the creator's wall clock rather than in UTC.
+  const zone = zoneOrUtc(dare.timezone);
   const prompt = JUDGE_PROMPT.replace("{{TITLE}}", dare.title)
     .replace("{{DESCRIPTION}}", dare.description)
     .replace("{{CRITERIA}}", dare.criteria)
     .replace("{{SPEC}}", specBlock)
-    .replace("{{CREATED}}", new Date(dare.createdAt).toISOString())
-    .replace("{{DEADLINE}}", new Date(dare.deadline).toISOString())
-    .replace("{{TODAY}}", new Date().toISOString());
+    .replaceAll("{{ZONE}}", zone)
+    .replace("{{CREATED}}", formatInZone(dare.createdAt, zone))
+    .replace("{{DEADLINE}}", formatInZone(dare.deadline, zone))
+    .replace("{{TODAY}}", formatInZone(new Date(), zone));
 
   try {
     const ai = new GoogleGenAI({ apiKey });

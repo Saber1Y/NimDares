@@ -6,6 +6,7 @@ import {
   modelChain,
   modelChainFailureReason,
 } from "@/lib/gemini-chain";
+import { formatInZone, zoneOrUtc } from "@/lib/time";
 
 /**
  * A dare's evidence requirements, fixed at creation time and shown to the user
@@ -50,6 +51,7 @@ The user will submit ONE screenshot as proof. Write the requirements that screen
 Rules:
 - Each requirement must be checkable by looking at a single screenshot. No requirement may depend on outside knowledge, on browsing, or on data the image cannot show.
 - Be concrete about what must be visible: the app or site, the state ("Merged", "Completed"), identifying details (username, repository, distance, duration), and any date that has to fall inside the dare window.
+- Dates and times in the screenshot are on the user's own clock, in {{ZONE}}. Write any date requirement in that local time, and phrase it by calendar day rather than by the hour, since a screenshot often shows only a date.
 - Do not invent requirements the commitment never asked for, and do not make them stricter than the stated criteria.
 - Write 3 to 5 requirements. Keep each under 140 characters.
 
@@ -63,6 +65,8 @@ export interface SpecInput {
   description: string;
   criteria: string;
   deadline: Date;
+  /** Zone the dare was created in; requirements are written against it. */
+  timezone?: string | null;
 }
 
 /**
@@ -76,7 +80,10 @@ export async function generateEvidenceSpec(input: SpecInput): Promise<EvidenceSp
   const prompt = SPEC_PROMPT.replace("{{TITLE}}", input.title)
     .replace("{{DESCRIPTION}}", input.description)
     .replace("{{CRITERIA}}", input.criteria)
-    .replace("{{DEADLINE}}", input.deadline.toISOString());
+    .replace("{{ZONE}}", zoneOrUtc(input.timezone))
+    // Local wall clock, not an ISO instant: the requirement it writes is read
+    // back against a screenshot showing the user's own clock.
+    .replace("{{DEADLINE}}", formatInZone(input.deadline, input.timezone));
 
   try {
     const ai = new GoogleGenAI({ apiKey });

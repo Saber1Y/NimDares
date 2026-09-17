@@ -5,6 +5,7 @@ import { getStore } from "@/lib/db";
 import { authenticate } from "@/lib/verify";
 import { getNimEscrowInfo } from "@/lib/escrow/nim";
 import { generateEvidenceSpec } from "@/lib/evidence-spec";
+import { isValidTimeZone } from "@/lib/time";
 import { getEvmEscrowInfo } from "@/lib/escrow/evm";
 import { NIM_DECIMALS } from "@/lib/config";
 import {
@@ -41,6 +42,10 @@ const CreateDareSchema = z.object({
     .string()
     .min(3, "Verifier link must be at least 3 characters")
     .max(160, "Verifier link must be 160 characters or fewer")
+    .optional(),
+  timezone: z
+    .string()
+    .max(64, "Timezone must be 64 characters or fewer")
     .optional(),
   mode: z.enum(["solo", "team", "arena"], {
     error: "Mode must be solo, team, or arena",
@@ -123,7 +128,12 @@ export async function POST(req: NextRequest) {
     verifierLink,
     mode,
     maxCapacity,
+    timezone,
   } = parsed.data;
+
+  // A zone this server cannot resolve is worse than none: it would be shown to
+  // the judge as fact. Unknown values fall back to UTC downstream.
+  const dareTimeZone = isValidTimeZone(timezone) ? timezone : null;
 
   if (asset === "USDT") {
     return NextResponse.json(
@@ -169,7 +179,13 @@ export async function POST(req: NextRequest) {
   // to the user up front and cannot drift once they know what they need to fake.
   const evidenceSpec =
     verifierKind === "VISION"
-      ? await generateEvidenceSpec({ title, description, criteria, deadline: due })
+      ? await generateEvidenceSpec({
+          title,
+          description,
+          criteria,
+          deadline: due,
+          timezone: dareTimeZone,
+        })
       : null;
 
   const store = getStore();
@@ -187,6 +203,7 @@ export async function POST(req: NextRequest) {
     isPrivate,
     roomCode: isMulti && isPrivate ? roomCode() : null,
     evidenceSpec,
+    timezone: dareTimeZone,
   });
 
   let participant = null;

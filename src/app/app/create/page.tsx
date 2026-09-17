@@ -26,6 +26,7 @@ import type { Asset, RoomMode, VerifierKind } from "@/lib/types";
 import { NIM_MAX_TX_DATA_BYTES, nimScanUrl } from "@/lib/config";
 import { base64UrlEncode } from "@/lib/client-auth";
 import { formatProviderError as extractError } from "@/lib/errors";
+import { currentTimeZone } from "@/lib/time";
 
 type FundStep = "funding" | "paid" | "cancelled" | "failed";
 
@@ -363,6 +364,9 @@ export default function CreateDare() {
           asset,
           amount: Number(amount),
           deadline: new Date(deadline).toISOString(),
+          // The deadline was picked on a wall clock, and the proof screenshot
+          // will show one too. Send the zone so both are read the same way.
+          timezone: currentTimeZone(),
           verifierKind,
           verifierLink: verifierKind === "GITHUB" ? verifierLink.trim() : undefined,
           mode,
