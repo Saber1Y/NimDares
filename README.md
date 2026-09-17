@@ -10,13 +10,25 @@
 
 NimDares is a Nimiq Pay Mini App for commitment staking.
 
-The user defines a measurable dare, locks NIM in escrow, submits screenshot evidence, and receives an adjudicated settlement.
+**How it works:** you write a measurable dare (e.g. "get 10,000 steps today"), lock NIM in escrow, prove it with screenshot evidence or a GitHub commit, and the escrow pays you back - or slashes you if you quit.
 
-Live frontend and API: [nimdares.vercel.app](https://nimdares.vercel.app) · On-chain network: Nimiq TestAlbatross testnet.
+```text
+write a dare -> stake NIM in escrow -> submit proof -> adjudicated payout
+```
+
+There are three ways to use it:
+
+- **Solo** - your own money behind your own goal.
+- **Team** - a private room with friends; quitters fund the doers.
+- **Arena** - a public room anyone joins from the feed.
+
+Everything settles on-chain: no dare becomes active until its exact stake is verified at the escrow address, and no payout happens without a settled verdict.
+
+Live frontend and API: [nimdares.vercel.app](https://nimdares.vercel.app).
 
 [Quickstart](#see-it-in-one-command) · [Architecture](#architecture) · [Safety](#safety-enforced-in-code) · [Demo](#the-one-flow-demo) · [Deploy](#deploy)
 
-Built for the Nimiq Pay Mini Apps Competition Cycle 2 and released under the MIT license.
+Built for the Nimiq Pay Mini Apps Competition Cycle 3 and released under the MIT license.
 
 NimDares is a non-custodial application interface, not a bank, exchange, investment product, or source of financial advice.
 
@@ -90,35 +102,43 @@ This keeps UI state, database state, and escrow state separate until the chain p
 
 ## What NimDares does
 
-### Solo commitments
+### Solo - stake against yourself
 
-Solo mode puts one user's stake behind one measurable commitment.
+One user's stake behind one measurable commitment.
 
 ```text
 create dare -> fund escrow -> submit proof -> adjudicate -> refund or slash
 ```
 
-The solo path is the primary competition flow and supports a zero-sum refund for valid proof or a configured charity route for failed proof.
+1. Open **New dare**, pick **Solo**, set the NIM stake and deadline.
+2. Approve the payment in Nimiq Pay; the dare becomes active once the exact stake is confirmed on-chain.
+3. Do the thing, then submit proof (screenshot via VISION, or a commit/PR link via GitHub).
+4. After the deadline the escrow settles: valid proof refunds your stake, failed proof routes it to the configured charity address.
 
-### Team rooms
+### Team - private room
 
-Team mode creates a private room with a shareable room code and multiple seats.
+A private room with a shareable code and multiple seats.
 
 ```text
 create private room -> join with code -> fund each seat -> settle winners and quitters
 ```
 
-Each seat has its own participant record, stake amount, funding transaction, proof, verdict, and payout state.
+1. Open **New dare**, pick **Team**, set the number of seats.
+2. Share the room code or link; friends open it in Nimiq Pay and tap **Join** with the code.
+3. Each member funds their seat using the same payment and confirmation flow as a solo dare.
+4. At the deadline the room settles: winners keep their stake plus a share of the quitters' stakes; surplus stays with the community treasury.
 
-### Arena rooms
+### Arena - public room
 
-Arena mode exposes a public room in the feed until its capacity is reached.
+A public room listed in the feed until its capacity is reached.
 
 ```text
 create public room -> join while open -> fund seats -> distribute the pot
 ```
 
-Arena rooms use the same escrow and adjudication engine as private rooms.
+1. Open **New dare**, pick **Arena**; the room appears in the public arena feed.
+2. Anyone with Nimiq Pay can open it and **Join** while seats are open.
+3. Same escrow and settlement engine as Team rooms.
 
 ### Screenshot proof
 
@@ -130,15 +150,15 @@ criteria -> evidence checklist -> screenshot upload -> structured verdict
 
 The proof record stores the artifact, verifier state, confidence, observations, and reason used for settlement.
 
-### GitHub and Strava adapters
+### GitHub adapter
 
-The codebase includes GitHub and Strava verifier adapters for API-grounded evidence.
+The codebase includes a GitHub verifier adapter for API-grounded evidence.
 
 ```text
 proof link -> provider lookup -> deadline check -> normalized verdict
 ```
 
-These adapters require their respective provider credentials and are not the default create-page verifier.
+The GitHub verifier requires the `GITHUB_TOKEN` credential and is available for solo dares.
 
 ### Live NIM account reader
 
@@ -328,7 +348,7 @@ The repository retains the ten-minute Vercel cron declaration, but the deployed 
 | Solo dare lifecycle | Real - create, fund, proof, adjudication, and settlement paths exist. |
 | Team and arena rooms | Real - room creation, capacity, room codes, seat funding, and shared settlement paths exist. |
 | Vision adjudication | Real - requires `GEMINI_API_KEY` and an available Gemini model. |
-| GitHub and Strava verification | Real - adapters exist, but each requires provider credentials and its supported evidence format. |
+| GitHub verification | Real - adapter exists and requires the `GITHUB_TOKEN` credential. |
 | Persistent production storage | Real - requires a configured `DATABASE_URL`; otherwise development uses memory. |
 | Automated settlement sweep | Real - route exists and is protected by `CRON_SECRET`; external scheduling is required on Vercel Hobby. |
 | Creator cancellation | Real - unfunded dares are deleted, while funded solo dares and rooms become `VOIDED` and refund through the escrow signer before the deadline or proof submission. |
@@ -429,7 +449,6 @@ Do not use a Pay account whose balance is locked in an HTLC, because a basic NIM
 | `GEMINI_MODEL` | Optional Gemini model override (primary of the chain). Default `gemini-3.1-flash-lite` with `gemini-3.6-flash` fallback. |
 | `GEMINI_MODELS` | Optional comma-separated model chain, tried in order and skipped when retired or quota-capped. |
 | `GITHUB_TOKEN` | Optional GitHub API verifier token. |
-| `STRAVA_ACCESS_TOKEN` | Optional Strava verifier token. |
 | `ESCROW_NIM_KEY_HEX` | NIM escrow signing key. Never commit this value. |
 | `ESCROW_EVM_KEY_HEX` | Polygon escrow signing key for USDT paths. Never commit this value. |
 | `CHARITY_WALLET_TESTNET` | Testnet destination for failed solo stakes. |
