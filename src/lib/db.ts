@@ -145,7 +145,10 @@ export interface LedgerStore {
   touchUser(address: string): Promise<void>;
   createDare(input: NewDareInput): Promise<DareRecord>;
   getDare(id: string): Promise<DareRecord | null>;
+  /** Dares this address owns or holds a seat in. Empty without an address. */
   listDares(ownerAddress?: string): Promise<DareRecord[]>;
+  /** Every dare, for settlement passes. Never reachable from a request parameter. */
+  listAllDares(limit?: number): Promise<DareRecord[]>;
   listOpenRooms(): Promise<DareRecord[]>;
   updateDare(
     id: string,
@@ -350,14 +353,27 @@ class PrismaLedgerStore implements LedgerStore {
   async listDares(ownerAddress?: string) {
     if (!ownerAddress) return [];
     const owner = await this.db().user.findUnique({ where: { address: ownerAddress } });
-    // An address without a user row owns nothing; never fall through to a
-    // broadened (unfiltered) query.
-    if (!owner) return [];
+    // A seat in someone else's room is still your dare: your stake is in it,
+    // you submit proof for it, and you are paid out of it.
     const dares = await this.db().dare.findMany({
-      where: { ownerId: owner.id },
+      where: {
+        OR: [
+          ...(owner ? [{ ownerId: owner.id }] : []),
+          { participants: { some: { userAddress: ownerAddress } } },
+        ],
+      },
       include: { owner: true },
       orderBy: { createdAt: "desc" },
       take: 50,
+    });
+    return dares.map(fromPrismaDare);
+  }
+
+  async listAllDares(limit = 500) {
+    const dares = await this.db().dare.findMany({
+      include: { owner: true },
+      orderBy: { createdAt: "desc" },
+      take: limit,
     });
     return dares.map(fromPrismaDare);
   }
@@ -655,12 +671,21 @@ class MemoryLedgerStore implements LedgerStore {
   }
 
   async listDares(ownerAddress?: string) {
-    const all = [...this.dares.values()].sort(
-      (a, b) => b.createdAt.getTime() - a.createdAt.getTime()
+    if (!ownerAddress) return [];
+    const seated = new Set(
+      [...this.participants.values()]
+        .filter((p) => p.userAddress === ownerAddress)
+        .map((p) => p.dareId)
     );
-    return ownerAddress
-      ? all.filter((d) => d.ownerAddress === ownerAddress)
-      : all.slice(0, 50);
+    return [...this.dares.values()]
+      .filter((d) => d.ownerAddress === ownerAddress || seated.has(d.id))
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  }
+
+  async listAllDares(limit = 500) {
+    return [...this.dares.values()]
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(0, limit);
   }
 
   async listOpenRooms() {

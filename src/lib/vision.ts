@@ -82,6 +82,7 @@ TIME
 All times below are on the user's own clock, in {{ZONE}}.
 The dare was created {{CREATED}} and runs until {{DEADLINE}}. Right now it is {{TODAY}}.
 A screenshot shows that same local clock and rarely names a zone, so read every date and time you see as {{ZONE}} unless the image says otherwise. Do not convert it to any other zone.
+The window is inclusive and the goal may be met at any point inside it: a proof dated the day the dare was created counts exactly as much as one dated the deadline day. Earlier inside the window is not late, and is not a reason to doubt it.
 A date visible in the screenshot must fall inside the window to count. When the screenshot shows only a calendar day, treat it as inside the window if any part of that day falls inside it - a day-only stamp cannot be pinned to the hour, and an uncertain proof must not be scored as a miss.
 Quote the date you see in your observations; if no date is visible, say so rather than assuming one.
 

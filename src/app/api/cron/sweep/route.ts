@@ -23,7 +23,7 @@ async function fundPendingDares() {
   const nimEscrow = getNimEscrowInfo();
   if (!nimEscrow.configured) return { funded: 0, skipped: 1 };
 
-  const pending = (await store.listDares()).filter(
+  const pending = (await store.listAllDares()).filter(
     (d) => d.asset === "NIM" && (d.status === "PENDING_FUNDING" || d.status === "LOBBY"),
   );
   let funded = 0;
@@ -101,7 +101,7 @@ export async function POST(req: NextRequest) {
   stats.funded = funding.funded;
   stats.funding_skipped = funding.skipped;
 
-  const dares = await store.listDares();
+  const dares = await store.listAllDares();
   const now = Date.now();
   stats.scanned = dares.length;
 
