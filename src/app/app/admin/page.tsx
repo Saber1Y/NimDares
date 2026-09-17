@@ -45,6 +45,7 @@ type AdminData = {
     escrowedUsdt: number;
     won: number;
     lost: number;
+    transactions: number;
   };
   store: string;
 };
@@ -236,7 +237,7 @@ export default function AdminPage() {
             <HudPanel
               label="Transaction history"
               icon={<Activity className="size-3.5" />}
-              badge={`${data.transactions.length} TX`}
+              badge={`${data.summary.transactions.toLocaleString("en-US")} total`}
             >
               {data.transactions.length === 0 ? (
                 <p className="font-mono text-sm text-muted-foreground">

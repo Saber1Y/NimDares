@@ -773,10 +773,9 @@ export default function DareDetail({
         transition={{ delay: 0.1, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
       >
         <HudPanel label="Status" icon={<Swords className="size-3.5" />}>
-          <div className="grid gap-6 md:grid-cols-4">
+          <div className="grid gap-6 md:grid-cols-3">
             <Stat label="Stake" value={`${formatAmount(cur.amount)} ${cur.asset}`} mono />
             <Stat label="Deadline" value={formatDeadline(cur.deadline)} mono />
-            <Stat label="Verifier" value={cur.verifierKind} mono />
             <Stat
               label={isRoom ? "Room" : "Owner"}
               value={isRoom ? `${participants.length} / ${cur.maxCapacity} seated` : shortAddr(cur.ownerAddress)}
@@ -785,7 +784,7 @@ export default function DareDetail({
             {cur.asset === "NIM" && nimScanUrl(cur.escrowTxHash) && (
               <div className="flex flex-col gap-1">
                 <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-                  escrow tx
+                  Payment receipt
                 </span>
                 <a
                   href={nimScanUrl(cur.escrowTxHash) ?? undefined}
@@ -793,7 +792,7 @@ export default function DareDetail({
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1.5 font-mono text-sm text-primary underline decoration-primary/40 underline-offset-4 hover:decoration-primary"
                 >
-                  {cur.escrowTxHash?.slice(0, 12)}…
+                  View payment
                   <ExternalLink className="size-3" />
                 </a>
               </div>

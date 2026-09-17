@@ -6,9 +6,8 @@ import { motion } from "motion/react";
 import {
   ArrowRight,
   Plus,
-  Wallet,
-  CircleAlert,
   Swords,
+  Wallet,
   Hourglass,
   Globe,
   Users,
@@ -29,21 +28,15 @@ type ApiState = {
   summary: LedgerSummary | null;
 };
 
-type ModeFilter = "all" | "solo" | "team" | "arena";
 
 export default function Dashboard() {
-  const { status: walletStatus, address, balances, readAuth, signIn, getAccountSnapshots } = useNimiqWallet();
-  // What the player can actually stake: the largest single account, since a
-  // stake is paid from one account.
-  const availableNim =
-    balances.length > 0 ? balances.reduce((best, b) => Math.max(best, b.balanceNim), 0) : null;
+  const { status: walletStatus, address, readAuth, signIn } = useNimiqWallet();
   const [api, setApi] = useState<ApiState>({
     status: "loading",
     dares: [],
     summary: null,
   });
   const [rooms, setRooms] = useState<Dare[]>([]);
-  const [modeFilter, setModeFilter] = useState<ModeFilter>("all");
   const [signingIn, setSigningIn] = useState(false);
 
   // The owner-scoped list is only readable by the wallet that owns the
@@ -99,25 +92,6 @@ export default function Dashboard() {
     };
   }, []);
 
-  useEffect(() => {
-    if (walletStatus !== "ready") return;
-    void getAccountSnapshots();
-  }, [walletStatus, getAccountSnapshots]);
-
-  const filteredDares = api.dares.filter((dare) => {
-    if (modeFilter === "all") return true;
-    if (modeFilter === "solo") return dare.maxCapacity === 1;
-    if (modeFilter === "team") return dare.maxCapacity > 1 && dare.isPrivate;
-    return dare.maxCapacity > 1 && !dare.isPrivate;
-  });
-  const visibleRooms = modeFilter === "all" || modeFilter === "arena" ? rooms : [];
-  const modeCounts: Record<ModeFilter, number> = {
-    all: api.dares.length + rooms.length,
-    solo: api.dares.filter((dare) => dare.maxCapacity === 1).length,
-    team: api.dares.filter((dare) => dare.maxCapacity > 1 && dare.isPrivate).length,
-    arena: api.dares.filter((dare) => dare.maxCapacity > 1 && !dare.isPrivate).length + rooms.length,
-  };
-
   return (
     <div className="flex flex-col gap-8">
       {/* header */}
@@ -141,98 +115,6 @@ export default function Dashboard() {
             New dare <Plus className="size-4" />
           </Button>
         </div>
-      </motion.div>
-
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.15, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-      >
-        <HudPanel label="Dare modes" icon={<Swords className="size-3.5" />}>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" role="tablist" aria-label="Filter dares by mode">
-            {([
-              ["all", "All"],
-              ["solo", "Solo"],
-              ["team", "Team"],
-              ["arena", "Arena"],
-            ] as const).map(([value, label]) => {
-              const selected = modeFilter === value;
-              return (
-                <button
-                  key={value}
-                  type="button"
-                  role="tab"
-                  aria-selected={selected}
-                  onClick={() => setModeFilter(value)}
-                  className={`flex items-center justify-between rounded-xl border px-4 py-3 text-left transition-all active:scale-[0.98] ${
-                    selected
-                      ? "border-primary bg-primary text-primary-foreground shadow-[0_0_20px_rgb(233_178_19_/_0.16)]"
-                      : "border-border bg-background/40 text-muted-foreground hover:border-primary/40 hover:text-foreground"
-                  }`}
-                >
-                  <span className="font-mono text-[11px] uppercase tracking-[0.14em]">{label}</span>
-                  <span className={`font-mono text-xs ${selected ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
-                    {modeCounts[value]}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-          <p className="mt-3 font-mono text-[11px] text-muted-foreground">
-            &gt; {modeFilter === "all" ? "showing every dare and open arena table" : `showing ${modeFilter} dares`}
-          </p>
-        </HudPanel>
-      </motion.div>
-
-      {/* wallet HUD */}
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.2, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-      >
-        <HudPanel
-          label="Wallet"
-          icon={<Wallet className="size-3.5" />}
-          badge={walletStatus === "ready" ? "CONNECTED" : undefined}
-        >
-          {walletStatus === "initializing" && (
-            <p className="text-sm text-muted-foreground">
-              Connecting to your wallet…
-              <span className="nd-live-dot ml-2 inline-block size-1.5 rounded-full align-middle" />
-            </p>
-          )}
-          {walletStatus === "ready" && (
-            <div className="grid gap-6 sm:grid-cols-2">
-              <div className="border-t border-border pt-3">
-                <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-                  Your wallet
-                </p>
-                <p className="mt-3 break-all font-mono text-sm text-foreground">{address}</p>
-              </div>
-              <div className="border-t border-border pt-3">
-                <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-                  Available to stake
-                </p>
-                <p className="mt-3 font-mono text-sm text-primary">
-                  {availableNim !== null ? `${availableNim.toFixed(2)} NIM` : "—"}
-                </p>
-              </div>
-            </div>
-          )}
-          {walletStatus === "no-host" && (
-            <p className="text-sm leading-relaxed text-muted-foreground">
-              Open NimDares inside the Nimiq Pay app to stake and get paid.
-            </p>
-          )}
-          {walletStatus === "error" && (
-            <div className="flex items-center gap-3">
-              <CircleAlert className="size-4 text-red-400" />
-              <p className="text-sm text-red-400">
-                Your wallet could not be reached. Reopen the app and try again.
-              </p>
-            </div>
-          )}
-        </HudPanel>
       </motion.div>
 
       {/* metric row */}
@@ -266,8 +148,7 @@ export default function Dashboard() {
       </div>
 
       {/* arena feed */}
-      {(visibleRooms.length > 0 || modeFilter === "all" || modeFilter === "arena") && (
-        <motion.div
+      <motion.div
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.45, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
@@ -277,13 +158,13 @@ export default function Dashboard() {
           icon={<Globe className="size-3.5" />}
           badge={rooms.length > 0 ? `${rooms.length} OPEN` : undefined}
         >
-          {visibleRooms.length === 0 && api.status !== "loading" ? (
+          {rooms.length === 0 && api.status !== "loading" ? (
             <EmptyLedger
               icon={<Globe className="size-6 text-muted-foreground" />}
               title="No open tables"
               body="Public arena rooms appear here for anyone to join. Create one yourself and the arena fills from the community."
             />
-          ) : visibleRooms.length === 0 && api.status === "loading" ? (
+          ) : rooms.length === 0 && api.status === "loading" ? (
             <div className="flex flex-col gap-3">
               {Array.from({ length: 2 }).map((_, i) => (
                 <RoomCardSkeleton key={i} />
@@ -291,14 +172,13 @@ export default function Dashboard() {
             </div>
           ) : (
             <div className="flex flex-col gap-3">
-              {visibleRooms.map((d) => (
+              {rooms.map((d) => (
                 <RoomCard key={d.id} dare={d} />
               ))}
             </div>
           )}
         </HudPanel>
-        </motion.div>
-      )}
+      </motion.div>
 
       {/* dare ledger */}
       <motion.div
@@ -337,16 +217,16 @@ export default function Dashboard() {
               }
             />
           )}
-          {api.status === "ok" && filteredDares.length === 0 && readAuth && (
+          {api.status === "ok" && api.dares.length === 0 && readAuth && (
             <EmptyLedger
               icon={<Swords className="size-6 text-muted-foreground" />}
               title="No dares yet"
               body="Your first dare is one stake away. Escrow opens the moment funding lands."
             />
           )}
-          {api.status === "ok" && filteredDares.length > 0 && (
+          {api.status === "ok" && api.dares.length > 0 && (
             <div className="flex flex-col gap-4">
-              {filteredDares.map((d) => (
+              {api.dares.map((d) => (
                 <DareRow key={d.id} dare={d} />
               ))}
             </div>
