@@ -91,7 +91,7 @@ export const NIM_MAX_TX_DATA_BYTES = 64;
 
 // Proof attempts per stake. Mirrors MAX_PROOF_ATTEMPTS in lib/proof-intake.ts,
 // which is the server-side authority.
-export const MAX_PROOF_ATTEMPTS = 3;
+export const MAX_PROOF_ATTEMPTS = 5;
 
 // Real Nimiq tx hashes are 32-byte hex (64 chars). Anything else is a
 // placeholder (memory-store `test-<id>` refs, nulls before confirmation).

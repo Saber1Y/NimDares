@@ -19,6 +19,7 @@ import {
   Trash2,
   Wallet,
   ExternalLink,
+  CircleAlert,
 } from "lucide-react";
 import { useNimiqWallet } from "@/components/nimiq-provider";
 import { HudPanel } from "@/components/ui/hud-panel";
@@ -357,6 +358,12 @@ export default function DareDetail({
     ? mySeat?.aiVerdict === "VALID"
     : cur.verifierResult?.status === "VALID";
   const attemptsLeft = ruledValid ? 0 : Math.max(0, MAX_PROOF_ATTEMPTS - attemptsUsed);
+  // Attempts run out only by being used: a verified dare is finished, not spent.
+  const attemptsSpent = !ruledValid && attemptsUsed >= MAX_PROOF_ATTEMPTS;
+  const attemptsNote = `${attemptsLeft} of ${MAX_PROOF_ATTEMPTS} ${attemptsLeft === 1 ? "try" : "tries"} left`;
+  const lastVerdict = isRoom
+    ? mySeat?.aiVerdict ?? "WAITING"
+    : cur.verifierResult?.status ?? "WAITING";
   const pastDeadline = isPastDeadline(cur.deadline);
   // Same affordability rule as the create page: the highest single account,
   // since a stake is paid from one account. An unreadable balance stays null
@@ -1067,6 +1074,33 @@ export default function DareDetail({
         </motion.div>
       )}
 
+      {/* out of tries */}
+      {attemptsSpent && !pastDeadline && (
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.35, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+        >
+          <HudPanel
+            label="No tries left"
+            icon={<CircleAlert className="size-3.5" />}
+            badge={`0 of ${MAX_PROOF_ATTEMPTS}`}
+          >
+            <p className="text-sm text-foreground">
+              All {MAX_PROOF_ATTEMPTS} tries used. Final ruling:{" "}
+              <span className="text-primary">{verdictLabel(lastVerdict)}</span>.
+            </p>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {lastVerdict === "INVALID"
+                ? isRoom
+                  ? `Your ${formatAmount(cur.amount)} ${cur.asset} goes to the players who proved theirs.`
+                  : `Your ${formatAmount(cur.amount)} ${cur.asset} is forfeited when the dare ends.`
+                : `Your ${formatAmount(cur.amount)} ${cur.asset} comes back when the dare ends.`}
+            </p>
+          </HudPanel>
+        </motion.div>
+      )}
+
       {/* proof submission */}
       {(cur.status === "ACTIVE" ||
         cur.status === "PENDING_FUNDING" ||
@@ -1088,9 +1122,16 @@ export default function DareDetail({
                     {isRoom
                       ? " Shares are paid out when the dare ends."
                       : " A verified proof returns your stake immediately."}
-                    {attemptsLeft > 0 &&
-                      ` ${attemptsLeft} of ${MAX_PROOF_ATTEMPTS} ${attemptsLeft === 1 ? "attempt" : "attempts"} left.`}
                   </p>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <StatusPill
+                      label={attemptsNote}
+                      tone={attemptsLeft === 1 ? "failed" : "neutral"}
+                    />
+                    <span className="font-mono text-[11px] text-muted-foreground">
+                      &gt; each screenshot you send counts as one try
+                    </span>
+                  </div>
                   {cur.evidenceSpec && (
                     <div className="rounded-xl border border-border bg-muted/20 px-4 py-3">
                       <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
@@ -1203,9 +1244,16 @@ export default function DareDetail({
                     {isRoom
                       ? " Shares are paid out when the dare ends."
                       : " A verified proof returns your stake immediately."}
-                    {attemptsLeft > 0 &&
-                      ` ${attemptsLeft} of ${MAX_PROOF_ATTEMPTS} ${attemptsLeft === 1 ? "attempt" : "attempts"} left.`}
                   </p>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <StatusPill
+                      label={attemptsNote}
+                      tone={attemptsLeft === 1 ? "failed" : "neutral"}
+                    />
+                    <span className="font-mono text-[11px] text-muted-foreground">
+                      &gt; each screenshot you send counts as one try
+                    </span>
+                  </div>
                   {cur.evidenceSpec && (
                     <div className="rounded-xl border border-border bg-muted/20 px-4 py-3">
                       <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
